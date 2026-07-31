@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone;
 
+import io.github.ikunkk02afk.workshopzone.command.WorkshopZoneCommands;
 import net.fabricmc.api.ModInitializer;
 
 import net.minecraft.util.Identifier;
@@ -7,7 +8,7 @@ import net.minecraft.util.Identifier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class Workshop_zone implements ModInitializer {
+public class WorkshopZone implements ModInitializer {
 	public static final String MOD_ID = "workshop_zone";
 
 	// This logger is used to write text to the console and the log file.
@@ -17,11 +18,8 @@ public class Workshop_zone implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
-		// This code runs as soon as Minecraft is in a mod-load-ready state.
-		// However, some things (like resources) may still be uninitialized.
-		// Proceed with mild caution.
-
-		LOGGER.info("Hello Fabric world!");
+		WorkshopZoneCommands.register();
+		LOGGER.info("Initializing Workshop Zone");
 	}
 
 	public static Identifier id(String path) {

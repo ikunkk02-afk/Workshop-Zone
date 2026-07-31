@@ -2,40 +2,34 @@
 	"schemaVersion": 1,
 	"id": "workshop_zone",
 	"version": "${version}",
-	"name": "workshop_zone",
-	"description": "This is an example description! Tell everyone what your mod is about!",
+	"name": "Workshop Zone",
+	"description": "工坊域：面向附近工作区域的服务器端扫描工具。",
 	"authors": [
-		"Me!"
+		"寿云"
 	],
 	"contact": {
-		"homepage": "https://fabricmc.net/",
-		"sources": "https://github.com/FabricMC/fabric-example-mod"
+		"homepage": "https://github.com/ikunkk02-afk/Workshop-Zone",
+		"sources": "https://github.com/ikunkk02-afk/Workshop-Zone",
+		"issues": "https://github.com/ikunkk02-afk/Workshop-Zone/issues"
 	},
-	"license": "CC0-1.0",
+	"license": "MIT",
 	"icon": "assets/workshop_zone/icon.png",
 	"environment": "*",
 	"entrypoints": {
 		"main": [
-			"io.github.ikunkk02afk.workshopzone.Workshop_zone"
+			"io.github.ikunkk02afk.workshopzone.WorkshopZone"
 		],
 		"client": [
-			"io.github.ikunkk02afk.workshopzone.client.Workshop_zoneClient"
+			"io.github.ikunkk02afk.workshopzone.client.WorkshopZoneClient"
 		],
 		"fabric-datagen": [
-			"io.github.ikunkk02afk.workshopzone.client.Workshop_zoneDataGenerator"
+			"io.github.ikunkk02afk.workshopzone.client.WorkshopZoneDataGenerator"
 		]
 	},
-	"mixins": [
-		"workshop_zone.mixins.json",
-		{
-			"config": "workshop_zone.client.mixins.json",
-			"environment": "client"
-		}
-	],
 	"depends": {
 		"fabricloader": ">=0.19.3",
 		"minecraft": "~1.21.1",
 		"java": ">=21",
-		"fabric-api": "*"
+		"fabric-api": ">=0.116.15+1.21.1"
 	}
 }

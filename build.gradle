@@ -29,6 +29,14 @@ fabricApi {
 	configureDataGeneration {
 		client = true
 	}
+
+	configureTests {
+		createSourceSet = true
+		modId = "workshop_zone_gametest"
+		enableGameTests = true
+		enableClientGameTests = false
+		eula = true
+	}
 }
 
 dependencies {
@@ -39,6 +47,9 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	testImplementation "org.junit.jupiter:junit-jupiter:5.11.0"
+	testRuntimeOnly "org.junit.platform:junit-platform-launcher"
 }
 
 processResources {
@@ -52,6 +63,13 @@ processResources {
 
 tasks.withType(JavaCompile).configureEach {
 	it.options.release = 21
+}
+
+tasks.withType(Test).configureEach {
+	useJUnitPlatform()
+	testLogging {
+		events "passed", "skipped", "failed"
+	}
 }
 
 java {

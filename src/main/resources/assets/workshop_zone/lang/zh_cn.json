@@ -1,0 +1,15 @@
+{
+	"command.workshop_zone.scan.complete": "[工坊域] 扫描完成：发现 %s 个可用方块",
+	"command.workshop_zone.scan.container_count": "容器：%s",
+	"command.workshop_zone.scan.workstation_count": "工作设备：%s",
+	"command.workshop_zone.scan.entry": "%1$s. %2$s | %3$s, %4$s, %5$s | 距离 %6$s",
+	"command.workshop_zone.scan.too_many": "还有 %s 个结果未显示",
+	"command.workshop_zone.scan.player_only": "[工坊域] 此命令只能由玩家使用",
+	"block.workshop_zone.chest": "箱子",
+	"block.workshop_zone.trapped_chest": "陷阱箱",
+	"block.workshop_zone.barrel": "木桶",
+	"block.workshop_zone.crafting_table": "工作台",
+	"block.workshop_zone.furnace": "熔炉",
+	"block.workshop_zone.blast_furnace": "高炉",
+	"block.workshop_zone.smoker": "烟熏炉"
+}

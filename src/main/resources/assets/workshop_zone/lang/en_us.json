@@ -1,0 +1,15 @@
+{
+	"command.workshop_zone.scan.complete": "[Workshop Zone] Scan complete: found %s usable blocks",
+	"command.workshop_zone.scan.container_count": "Containers: %s",
+	"command.workshop_zone.scan.workstation_count": "Work devices: %s",
+	"command.workshop_zone.scan.entry": "%1$s. %2$s | %3$s, %4$s, %5$s | Distance %6$s",
+	"command.workshop_zone.scan.too_many": "%s more results were not shown",
+	"command.workshop_zone.scan.player_only": "[Workshop Zone] This command can only be used by a player",
+	"block.workshop_zone.chest": "Chest",
+	"block.workshop_zone.trapped_chest": "Trapped Chest",
+	"block.workshop_zone.barrel": "Barrel",
+	"block.workshop_zone.crafting_table": "Crafting Table",
+	"block.workshop_zone.furnace": "Furnace",
+	"block.workshop_zone.blast_furnace": "Blast Furnace",
+	"block.workshop_zone.smoker": "Smoker"
+}
