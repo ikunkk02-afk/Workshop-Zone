@@ -24,35 +24,24 @@ public final class ContainerLabelService {
 		if (stack.isEmpty()) {
 			return true;
 		}
-		return !summary(holder).conflict() && holder.workshopZone$getLabelRule().canInsert(stack);
+		return !summary(holder).blocksInput() && holder.workshopZone$getLabelRule().canInsert(stack);
 	}
 
 	public static ContainerLabelSummary summary(ContainerLabelHolder holder) {
 		ContainerLabelRule ownRule = holder.workshopZone$getLabelRule();
-		if (!(holder instanceof BlockEntity blockEntity)
-			|| !(blockEntity.getWorld() instanceof ServerWorld world)
-			|| !(blockEntity.getCachedState().getBlock() instanceof ChestBlock)
-			|| !blockEntity.getCachedState().contains(ChestBlock.CHEST_TYPE)) {
+		if (!(holder instanceof BlockEntity blockEntity) || !(blockEntity.getWorld() instanceof ServerWorld world)) {
 			return ContainerLabelSummary.of(ownRule);
 		}
-		BlockState state = blockEntity.getCachedState();
-		if (state.get(ChestBlock.CHEST_TYPE) == net.minecraft.block.enums.ChestType.SINGLE) {
-			return ContainerLabelSummary.of(ownRule);
+		WorkshopContainerResolver.Result resolved = WorkshopContainerResolver.resolve(world, blockEntity.getPos());
+		if (resolved.successful()) {
+			return summarize(resolved.container());
 		}
-		BlockPos otherPosition = blockEntity.getPos().offset(ChestBlock.getFacing(state));
-		if (!isLoaded(world, otherPosition)) {
+		if (blockEntity.getCachedState().getBlock() instanceof ChestBlock
+			&& blockEntity.getCachedState().contains(ChestBlock.CHEST_TYPE)
+			&& blockEntity.getCachedState().get(ChestBlock.CHEST_TYPE) != net.minecraft.block.enums.ChestType.SINGLE) {
 			return ContainerLabelSummary.CONFLICT;
 		}
-		BlockState otherState = world.getBlockState(otherPosition);
-		BlockEntity other = world.getBlockEntity(otherPosition);
-		if (otherState.getBlock() != state.getBlock()
-			|| !(other instanceof ContainerLabelHolder otherHolder)
-			|| !otherPosition.offset(ChestBlock.getFacing(otherState)).equals(blockEntity.getPos())) {
-			return ContainerLabelSummary.CONFLICT;
-		}
-		return ownRule.equals(otherHolder.workshopZone$getLabelRule())
-			? ContainerLabelSummary.of(ownRule)
-			: ContainerLabelSummary.CONFLICT;
+		return ContainerLabelSummary.of(ownRule);
 	}
 
 	public static ContainerLabelSummary summarizeInventories(Inventory first, Inventory second) {
@@ -60,9 +49,15 @@ public final class ContainerLabelService {
 			return ContainerLabelSummary.NONE;
 		}
 		ContainerLabelRule firstRule = firstHolder.workshopZone$getLabelRule();
-		return firstRule.equals(secondHolder.workshopZone$getLabelRule())
-			? ContainerLabelSummary.of(firstRule)
-			: ContainerLabelSummary.CONFLICT;
+		if (!firstRule.equals(secondHolder.workshopZone$getLabelRule())) {
+			return ContainerLabelSummary.CONFLICT;
+		}
+		if (firstRule.mode() != ContainerLabelMode.ITEM_TAG) {
+			return ContainerLabelSummary.of(firstRule);
+		}
+		boolean contentConflict = !validateContents(first, firstRule).compatible()
+			|| !validateContents(second, firstRule).compatible();
+		return ContainerLabelSummary.itemTag(firstRule, contentConflict);
 	}
 
 	public static ContainerLabelSummary reconcile(LogicalContainer container) {
@@ -73,26 +68,40 @@ public final class ContainerLabelService {
 		}
 		ContainerLabelRule second = holders.get(1).workshopZone$getLabelRule();
 		if (first.equals(second)) {
-			return ContainerLabelSummary.of(first);
+			return summarizeMatchingRule(container.inventory(), first);
 		}
-		ContainerLabelRule exact = first.mode() == ContainerLabelMode.EXACT_ITEM && second.mode() == ContainerLabelMode.NONE
+		ContainerLabelRule labeled = first.mode() != ContainerLabelMode.NONE && second.mode() == ContainerLabelMode.NONE
 			? first
-			: second.mode() == ContainerLabelMode.EXACT_ITEM && first.mode() == ContainerLabelMode.NONE ? second : null;
-		if (exact == null || !validateContents(container.inventory(), exact).compatible()) {
+			: second.mode() != ContainerLabelMode.NONE && first.mode() == ContainerLabelMode.NONE ? second : null;
+		if (labeled == null
+			|| labeled.mode() == ContainerLabelMode.ITEM_TAG
+				&& ContainerItemTags.availability(labeled.itemTagId().orElseThrow()) != ContainerItemTags.Availability.AVAILABLE
+			|| !validateContents(container.inventory(), labeled).compatible()) {
 			return ContainerLabelSummary.CONFLICT;
 		}
-		if (!applyAtomically(holders, exact)) {
+		if (!applyAtomically(holders, labeled)) {
 			return ContainerLabelSummary.CONFLICT;
 		}
-		return ContainerLabelSummary.of(exact);
+		return summarizeMatchingRule(container.inventory(), labeled);
 	}
 
 	public static ContainerLabelSummary summarize(LogicalContainer container) {
 		List<ContainerLabelHolder> holders = container.holders();
 		ContainerLabelRule first = holders.getFirst().workshopZone$getLabelRule();
 		return holders.stream().allMatch(holder -> holder.workshopZone$getLabelRule().equals(first))
-			? ContainerLabelSummary.of(first)
+			? summarizeMatchingRule(container.inventory(), first)
 			: ContainerLabelSummary.CONFLICT;
+	}
+
+	private static ContainerLabelSummary summarizeMatchingRule(Inventory inventory, ContainerLabelRule rule) {
+		if (rule.mode() != ContainerLabelMode.ITEM_TAG) {
+			return ContainerLabelSummary.of(rule);
+		}
+		Identifier tagId = rule.itemTagId().orElseThrow();
+		if (ContainerItemTags.availability(tagId) != ContainerItemTags.Availability.AVAILABLE) {
+			return ContainerLabelSummary.itemTag(rule, false);
+		}
+		return ContainerLabelSummary.itemTag(rule, !validateContents(inventory, rule).compatible());
 	}
 
 	public static ContentValidation validateContents(Inventory inventory, ContainerLabelRule rule) {
@@ -137,12 +146,6 @@ public final class ContainerLabelService {
 			}
 			return false;
 		}
-	}
-
-	private static boolean isLoaded(ServerWorld world, BlockPos position) {
-		return world.getChunkManager().isChunkLoaded(
-			ChunkSectionPos.getSectionCoord(position.getX()), ChunkSectionPos.getSectionCoord(position.getZ())
-		);
 	}
 
 	public record ContentValidation(boolean compatible, Optional<Identifier> firstMismatchItemId, int mismatchSlotCount) {

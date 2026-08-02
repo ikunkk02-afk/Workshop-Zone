@@ -17,7 +17,7 @@ public record UpdateContainerLabelPayload(
 	int syncId,
 	BlockPos openedEntryPosition,
 	ContainerLabelOperation operation,
-	Optional<Identifier> itemId
+	Optional<Identifier> valueId
 ) implements CustomPayload {
 	public static final Id<UpdateContainerLabelPayload> ID = new Id<>(WorkshopZone.id("update_container_label"));
 	public static final PacketCodec<RegistryByteBuf, UpdateContainerLabelPayload> CODEC = CustomPayload.codecOf(
@@ -28,11 +28,19 @@ public record UpdateContainerLabelPayload(
 	public UpdateContainerLabelPayload {
 		openedEntryPosition = Objects.requireNonNull(openedEntryPosition, "openedEntryPosition").toImmutable();
 		Objects.requireNonNull(operation, "operation");
-		itemId = Objects.requireNonNull(itemId, "itemId");
+		valueId = Objects.requireNonNull(valueId, "valueId");
 		if (sessionId < 0 || revision < 0 || syncId < 0
-			|| (operation == ContainerLabelOperation.SET_EXACT_ITEM) != itemId.isPresent()) {
+			|| (operation != ContainerLabelOperation.CLEAR) != valueId.isPresent()) {
 			throw new IllegalArgumentException("Invalid container label edit payload");
 		}
+	}
+
+	public Optional<Identifier> itemId() {
+		return operation == ContainerLabelOperation.SET_EXACT_ITEM ? valueId : Optional.empty();
+	}
+
+	public Optional<Identifier> tagId() {
+		return operation == ContainerLabelOperation.SET_ITEM_TAG ? valueId : Optional.empty();
 	}
 
 	@Override
@@ -46,8 +54,8 @@ public record UpdateContainerLabelPayload(
 		buf.writeVarInt(payload.syncId);
 		buf.writeBlockPos(payload.openedEntryPosition);
 		buf.writeIdentifier(payload.operation.id());
-		buf.writeBoolean(payload.itemId.isPresent());
-		payload.itemId.ifPresent(buf::writeIdentifier);
+		buf.writeBoolean(payload.valueId.isPresent());
+		payload.valueId.ifPresent(buf::writeIdentifier);
 	}
 
 	private static UpdateContainerLabelPayload read(RegistryByteBuf buf) {

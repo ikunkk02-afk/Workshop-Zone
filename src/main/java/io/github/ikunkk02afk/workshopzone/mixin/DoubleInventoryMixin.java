@@ -18,7 +18,7 @@ public abstract class DoubleInventoryMixin implements ContainerLabelInventory {
 	@Override
 	public boolean workshopZone$canInsert(ItemStack stack) {
 		ContainerLabelSummary summary = workshopZone$getLabelSummary();
-		return stack.isEmpty() || (!summary.conflict()
+		return stack.isEmpty() || (!summary.blocksInput()
 			&& (!(first instanceof ContainerLabelInventory aware) || aware.workshopZone$canInsert(stack))
 			&& (!(second instanceof ContainerLabelInventory aware) || aware.workshopZone$canInsert(stack)));
 	}

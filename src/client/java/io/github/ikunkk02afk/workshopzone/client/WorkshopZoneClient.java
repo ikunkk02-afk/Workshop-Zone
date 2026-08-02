@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import io.github.ikunkk02afk.workshopzone.network.ClearWorkshopSessionPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResultPayload;
+import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotPayload;
 
 public class WorkshopZoneClient implements ClientModInitializer {
@@ -23,6 +24,9 @@ public class WorkshopZoneClient implements ClientModInitializer {
 		);
 		ClientPlayNetworking.registerGlobalReceiver(ContainerLabelEditResultPayload.ID, (payload, context) ->
 			context.client().execute(() -> ClientContainerLabelState.accept(payload))
+		);
+		ClientPlayNetworking.registerGlobalReceiver(ItemTagCandidatesPayload.ID, (payload, context) ->
+			context.client().execute(() -> ClientItemTagState.accept(payload))
 		);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> ClientWorkshopState.resetConnection());
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientWorkshopState.resetConnection());

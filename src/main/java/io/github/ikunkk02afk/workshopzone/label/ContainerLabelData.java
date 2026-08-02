@@ -7,12 +7,16 @@ import net.minecraft.registry.Registries;
 import net.minecraft.util.Identifier;
 
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Predicate;
 
 public final class ContainerLabelData {
 	public static final String NBT_KEY = "workshop_zone:container_label";
-	public static final int VERSION = 1;
+	public static final int VERSION = 2;
+	private static final int LEGACY_VERSION = 1;
+	private static final Set<String> WARNED_MESSAGES = ConcurrentHashMap.newKeySet();
 
 	private ContainerLabelData() {
 	}
@@ -21,8 +25,14 @@ public final class ContainerLabelData {
 		return read(
 			blockEntityNbt,
 			id -> Registries.ITEM.getOrEmpty(id).isPresent() && !Identifier.ofVanilla("air").equals(id),
-			warning -> WorkshopZone.LOGGER.warn("{}", warning)
+			ContainerLabelData::warnOnce
 		);
+	}
+
+	private static void warnOnce(String warning) {
+		if (WARNED_MESSAGES.add(warning)) {
+			WorkshopZone.LOGGER.warn("{}", warning);
+		}
 	}
 
 	static ContainerLabelRule read(
@@ -38,8 +48,9 @@ public final class ContainerLabelData {
 			return ContainerLabelRule.NONE;
 		}
 		NbtCompound data = blockEntityNbt.getCompound(NBT_KEY);
-		if (data.getInt("version") != VERSION) {
-			warningSink.accept("Ignoring unsupported Workshop Zone container label version " + data.getInt("version"));
+		int version = data.getInt("version");
+		if (version != LEGACY_VERSION && version != VERSION) {
+			warningSink.accept("Ignoring unsupported Workshop Zone container label version " + version);
 			return ContainerLabelRule.NONE;
 		}
 		Identifier modeId = Identifier.tryParse(data.getString("mode"));
@@ -49,14 +60,37 @@ public final class ContainerLabelData {
 			return ContainerLabelRule.NONE;
 		}
 		if (mode.get() == ContainerLabelMode.NONE) {
+			if (data.contains("item") || data.contains("tag")) {
+				warningSink.accept("Ignoring malformed Workshop Zone none label with a value field");
+			}
 			return ContainerLabelRule.NONE;
 		}
-		Identifier itemId = Identifier.tryParse(data.getString("item"));
-		if (itemId == null || !validItem.test(itemId) || Identifier.ofVanilla("air").equals(itemId)) {
-			warningSink.accept("Ignoring invalid Workshop Zone exact-item label " + data.getString("item"));
+		if (version == LEGACY_VERSION && mode.get() != ContainerLabelMode.EXACT_ITEM) {
+			warningSink.accept("Ignoring unsupported version 1 Workshop Zone label mode " + mode.get().id());
 			return ContainerLabelRule.NONE;
 		}
-		return ContainerLabelRule.exact(itemId);
+		if (mode.get() == ContainerLabelMode.EXACT_ITEM) {
+			if (!data.contains("item", NbtElement.STRING_TYPE) || data.contains("tag")) {
+				warningSink.accept("Ignoring malformed Workshop Zone exact-item label fields");
+				return ContainerLabelRule.NONE;
+			}
+			Identifier itemId = Identifier.tryParse(data.getString("item"));
+			if (itemId == null || !validItem.test(itemId) || Identifier.ofVanilla("air").equals(itemId)) {
+				warningSink.accept("Ignoring invalid Workshop Zone exact-item label " + data.getString("item"));
+				return ContainerLabelRule.NONE;
+			}
+			return ContainerLabelRule.exactItem(itemId);
+		}
+		if (!data.contains("tag", NbtElement.STRING_TYPE) || data.contains("item")) {
+			warningSink.accept("Ignoring malformed Workshop Zone item-tag label fields");
+			return ContainerLabelRule.NONE;
+		}
+		Identifier tagId = Identifier.tryParse(data.getString("tag"));
+		if (tagId == null) {
+			warningSink.accept("Ignoring invalid Workshop Zone item-tag label " + data.getString("tag"));
+			return ContainerLabelRule.NONE;
+		}
+		return ContainerLabelRule.itemTag(tagId);
 	}
 
 	public static void write(NbtCompound blockEntityNbt, ContainerLabelRule rule) {
@@ -67,7 +101,11 @@ public final class ContainerLabelData {
 		NbtCompound data = new NbtCompound();
 		data.putInt("version", VERSION);
 		data.putString("mode", rule.mode().id().toString());
-		data.putString("item", rule.exactItemId().orElseThrow().toString());
+		switch (rule.mode()) {
+			case EXACT_ITEM -> data.putString("item", rule.exactItemId().orElseThrow().toString());
+			case ITEM_TAG -> data.putString("tag", rule.itemTagId().orElseThrow().toString());
+			case NONE -> throw new IllegalStateException("None labels are not serialized");
+		}
 		blockEntityNbt.put(NBT_KEY, data);
 	}
 }

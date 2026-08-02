@@ -87,7 +87,9 @@ public final class ClientWorkshopState {
 				entry.container(), entry.workstation(), entry.customName().isPresent(), name,
 				ICON_CACHE.computeIfAbsent(entry.blockId(), id -> createIcon(block)),
 				entry.labelSummary(),
-				entry.labelSummary().exactItemId()
+				entry.labelSummary().unavailable()
+					? new ItemStack(Items.BARRIER)
+					: entry.labelSummary().representativeItemId()
 					.map(id -> LABEL_ICON_CACHE.computeIfAbsent(id, ClientWorkshopState::createItemIcon))
 					.orElse(ItemStack.EMPTY)
 			));
@@ -141,6 +143,7 @@ public final class ClientWorkshopState {
 		ICON_CACHE.clear();
 		LABEL_ICON_CACHE.clear();
 		ClientContainerLabelState.reset();
+		ClientItemTagState.reset();
 	}
 
 	private static ItemStack createIcon(Block block) {

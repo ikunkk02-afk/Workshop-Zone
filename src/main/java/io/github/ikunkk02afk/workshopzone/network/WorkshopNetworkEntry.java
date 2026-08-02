@@ -67,7 +67,12 @@ public record WorkshopNetworkEntry(
 		buf.writeIdentifier(entry.labelSummary.mode().id());
 		buf.writeBoolean(entry.labelSummary.exactItemId().isPresent());
 		entry.labelSummary.exactItemId().ifPresent(buf::writeIdentifier);
+		buf.writeBoolean(entry.labelSummary.itemTagId().isPresent());
+		entry.labelSummary.itemTagId().ifPresent(buf::writeIdentifier);
+		buf.writeBoolean(entry.labelSummary.representativeItemId().isPresent());
+		entry.labelSummary.representativeItemId().ifPresent(buf::writeIdentifier);
 		buf.writeBoolean(entry.labelSummary.conflict());
+		buf.writeBoolean(entry.labelSummary.unavailable());
 	}
 
 	static WorkshopNetworkEntry read(RegistryByteBuf buf) {
@@ -86,11 +91,14 @@ public record WorkshopNetworkEntry(
 		ContainerLabelMode labelMode = ContainerLabelMode.fromId(labelModeId)
 			.orElseThrow(() -> new DecoderException("Unknown container label mode: " + labelModeId));
 		Optional<Identifier> exactItemId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
+		Optional<Identifier> itemTagId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
+		Optional<Identifier> representativeItemId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
 		boolean conflict = buf.readBoolean();
+		boolean unavailable = buf.readBoolean();
 		try {
 			return new WorkshopNetworkEntry(
 				type, position, blockId, distanceSquared, container, workstation, customName,
-				new ContainerLabelSummary(labelMode, exactItemId, conflict)
+				new ContainerLabelSummary(labelMode, exactItemId, itemTagId, representativeItemId, conflict, unavailable)
 			);
 		} catch (IllegalArgumentException exception) {
 			throw new DecoderException("Invalid workshop entry", exception);

@@ -9,7 +9,8 @@ import java.util.Optional;
 
 public enum ContainerLabelMode {
 	NONE("none"),
-	EXACT_ITEM("exact_item");
+	EXACT_ITEM("exact_item"),
+	ITEM_TAG("item_tag");
 
 	private static final Map<Identifier, ContainerLabelMode> BY_ID = createIdMap();
 	private final Identifier id;

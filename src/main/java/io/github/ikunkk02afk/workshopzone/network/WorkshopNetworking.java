@@ -34,9 +34,11 @@ public final class WorkshopNetworking {
 		PayloadTypeRegistry.playS2C().register(WorkshopSnapshotPayload.ID, WorkshopSnapshotPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ClearWorkshopSessionPayload.ID, ClearWorkshopSessionPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ContainerLabelEditResultPayload.ID, ContainerLabelEditResultPayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(ItemTagCandidatesPayload.ID, ItemTagCandidatesPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopRefreshPayload.ID, RequestWorkshopRefreshPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(OpenWorkshopTargetPayload.ID, OpenWorkshopTargetPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(UpdateContainerLabelPayload.ID, UpdateContainerLabelPayload.CODEC);
+		PayloadTypeRegistry.playC2S().register(RequestItemTagCandidatesPayload.ID, RequestItemTagCandidatesPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestWorkshopRefreshPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().refresh(
@@ -52,6 +54,10 @@ public final class WorkshopNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(
 			UpdateContainerLabelPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().updateContainerLabel(context.player(), payload)
+		);
+		ServerPlayNetworking.registerGlobalReceiver(
+			RequestItemTagCandidatesPayload.ID,
+			(payload, context) -> WorkshopSessionManager.getInstance().requestItemTagCandidates(context.player(), payload)
 		);
 	}
 
@@ -111,6 +117,10 @@ public final class WorkshopNetworking {
 		ServerPlayNetworking.send(player, new ContainerLabelEditResultPayload(
 			sessionId, syncId, result, mismatchItemId, mismatchSlotCount
 		));
+	}
+
+	public static void sendItemTagCandidates(ServerPlayerEntity player, ItemTagCandidatesPayload payload) {
+		ServerPlayNetworking.send(player, payload);
 	}
 
 	private static Optional<String> findCustomName(ServerWorld world, WorkshopBlockEntry entry) {

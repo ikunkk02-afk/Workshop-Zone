@@ -27,8 +27,17 @@ public final class ContainerLabelFeedback {
 		}
 		LAST_FEEDBACK_TICK.put(player.getUuid(), now);
 		Text message;
-		if (summary.conflict()) {
+		if (summary.unavailable()) {
+			message = Text.translatable("message.workshop_zone.label.tag_unavailable");
+		} else if (summary.contentConflict()) {
+			message = Text.translatable("gui.workshop_zone.label.content_conflict");
+		} else if (summary.ruleConflict()) {
 			message = Text.translatable("message.workshop_zone.label.conflict");
+		} else if (summary.mode() == ContainerLabelMode.ITEM_TAG) {
+			message = Text.translatable(
+				"message.workshop_zone.label.category_rejected_insert",
+				ContainerTagPreset.displayName(summary.itemTagId().orElseThrow())
+			);
 		} else {
 			Optional<Item> item = summary.exactItemId().flatMap(Registries.ITEM::getOrEmpty);
 			message = item.<Text>map(value -> Text.translatable("message.workshop_zone.label.rejected_insert", value.getName()))

@@ -9,6 +9,7 @@ import java.util.Optional;
 
 public enum ContainerLabelOperation {
 	SET_EXACT_ITEM("set_exact_item"),
+	SET_ITEM_TAG("set_item_tag"),
 	CLEAR("clear");
 
 	private static final Map<Identifier, ContainerLabelOperation> BY_ID = createMap();
