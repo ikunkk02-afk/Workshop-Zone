@@ -33,10 +33,17 @@ public final class WorkshopNetworking {
 		PayloadTypeRegistry.playS2C().register(WorkshopSnapshotPayload.ID, WorkshopSnapshotPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ClearWorkshopSessionPayload.ID, ClearWorkshopSessionPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopRefreshPayload.ID, RequestWorkshopRefreshPayload.CODEC);
+		PayloadTypeRegistry.playC2S().register(OpenWorkshopTargetPayload.ID, OpenWorkshopTargetPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestWorkshopRefreshPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().refresh(
 				context.player(), payload.sessionId(), payload.syncId()
+			)
+		);
+		ServerPlayNetworking.registerGlobalReceiver(
+			OpenWorkshopTargetPayload.ID,
+			(payload, context) -> WorkshopSessionManager.getInstance().openTarget(
+				context.player(), payload.sessionId(), payload.revision(), payload.syncId(), payload.targetPos()
 			)
 		);
 	}
@@ -66,7 +73,8 @@ public final class WorkshopNetworking {
 			session.revision(),
 			session.syncId(),
 			session.dimension().getValue(),
-			session.center(),
+			session.scanCenter(),
+			session.openedEntryPosition(),
 			session.openedBlockType(),
 			session.scanResult().size(),
 			session.scanResult().containerCount(),

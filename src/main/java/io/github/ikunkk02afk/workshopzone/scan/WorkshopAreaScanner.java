@@ -85,7 +85,7 @@ public final class WorkshopAreaScanner {
 						continue;
 					}
 
-					BlockPos representative = getRepresentativePosition(position, state);
+					BlockPos representative = representativePosition(position, state);
 					uniqueEntries.computeIfAbsent(representative, key -> WorkshopBlockEntry.create(
 						type,
 						key,
@@ -106,7 +106,7 @@ public final class WorkshopAreaScanner {
 		);
 	}
 
-	static BlockPos getRepresentativePosition(BlockPos position, BlockState state) {
+	public static BlockPos representativePosition(BlockPos position, BlockState state) {
 		if (!(state.getBlock() instanceof ChestBlock)
 			|| !state.contains(ChestBlock.CHEST_TYPE)
 			|| state.get(ChestBlock.CHEST_TYPE) == ChestType.SINGLE) {

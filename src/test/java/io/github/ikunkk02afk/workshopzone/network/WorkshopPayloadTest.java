@@ -22,7 +22,7 @@ class WorkshopPayloadTest {
 	void snapshotRoundTripsWithoutChangingOrder() {
 		List<WorkshopNetworkEntry> entries = List.of(entry(WorkshopBlockType.BARREL, 1), entry(WorkshopBlockType.FURNACE, 3));
 		WorkshopSnapshotPayload original = new WorkshopSnapshotPayload(
-			10, 2, 7, Identifier.ofVanilla("overworld"), BlockPos.ORIGIN, WorkshopBlockType.CHEST,
+			10, 2, 7, Identifier.ofVanilla("overworld"), BlockPos.ORIGIN, BlockPos.ORIGIN, WorkshopBlockType.CHEST,
 			2, 1, 1, false, entries
 		);
 		RegistryByteBuf buffer = new RegistryByteBuf(Unpooled.buffer(), DynamicRegistryManager.EMPTY);
@@ -84,9 +84,30 @@ class WorkshopPayloadTest {
 		unknown.writeVarInt(2);
 		unknown.writeIdentifier(Identifier.ofVanilla("overworld"));
 		unknown.writeBlockPos(BlockPos.ORIGIN);
+		unknown.writeBlockPos(BlockPos.ORIGIN);
 		unknown.writeIdentifier(Identifier.of("workshop_zone", "not_a_real_type"));
 
 		assertThrows(io.netty.handler.codec.DecoderException.class, () -> WorkshopSnapshotPayload.CODEC.decode(unknown));
+	}
+
+	@Test
+	void openTargetRequestRoundTripsWithOnlyServerVerifiableFields() {
+		OpenWorkshopTargetPayload original = new OpenWorkshopTargetPayload(
+			42, 7, 12, new BlockPos(-123, 64, 456)
+		);
+		RegistryByteBuf buffer = new RegistryByteBuf(Unpooled.buffer(), DynamicRegistryManager.EMPTY);
+
+		OpenWorkshopTargetPayload.CODEC.encode(buffer, original);
+
+		assertEquals(original, OpenWorkshopTargetPayload.CODEC.decode(buffer));
+		assertEquals(0, buffer.readableBytes());
+	}
+
+	@Test
+	void openTargetRequestRejectsNegativeIdentityFields() {
+		assertThrows(IllegalArgumentException.class, () -> new OpenWorkshopTargetPayload(-1, 0, 0, BlockPos.ORIGIN));
+		assertThrows(IllegalArgumentException.class, () -> new OpenWorkshopTargetPayload(1, -1, 0, BlockPos.ORIGIN));
+		assertThrows(IllegalArgumentException.class, () -> new OpenWorkshopTargetPayload(1, 0, -1, BlockPos.ORIGIN));
 	}
 
 	private static WorkshopNetworkEntry entry(WorkshopBlockType type, int distance) {

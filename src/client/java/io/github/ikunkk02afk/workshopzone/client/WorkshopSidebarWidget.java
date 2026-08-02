@@ -1,6 +1,8 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.mixin.client.HandledScreenAccessor;
+import io.github.ikunkk02afk.workshopzone.WorkshopZone;
+import io.github.ikunkk02afk.workshopzone.network.OpenWorkshopTargetPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestWorkshopRefreshPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
@@ -13,7 +15,10 @@ import net.minecraft.client.gui.screen.recipebook.RecipeBookProvider;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.Util;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -26,12 +31,21 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private static final int HEADER_HEIGHT = 54;
 	private static final int ROW_HEIGHT = 24;
 	private static final int BUTTON_SIZE = 16;
+	private static final long PENDING_TIMEOUT_MILLIS = 3_000L;
+	private static final double MAX_VISUAL_OPEN_DISTANCE_SQUARED = 64.0;
 
 	private final HandledScreen<?> screen;
 	private final boolean showWhileLoading;
 	private int scrollOffset;
 	private boolean forcedCollapsed;
 	private long nextLocalRefreshAt;
+	private BlockPos pendingTarget;
+	private long pendingSessionId = -1;
+	private long pendingRevision = -1;
+	private int pendingSyncId = -1;
+	private long pendingExpiresAt;
+	private ClientWorkshopEntry narratedEntry;
+	private Text narratedState;
 
 	public WorkshopSidebarWidget(HandledScreen<?> screen, boolean showWhileLoading) {
 		super(0, 0, PANEL_WIDTH, 120, Text.translatable("gui.workshop_zone.sidebar.title"));
@@ -51,6 +65,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		if (!visible) {
 			return;
 		}
+		updatePending(snapshot);
 		if (!updateBounds()) {
 			active = false;
 			return;
@@ -111,6 +126,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 
 		context.enableScissor(getX() + 2, listTop, getRight() - 2, listBottom);
 		ClientWorkshopEntry hovered = null;
+		Text hoveredState = null;
 		if (snapshot.entries().isEmpty()) {
 			context.drawCenteredTextWithShadow(
 				textRenderer,
@@ -126,18 +142,38 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				continue;
 			}
 			ClientWorkshopEntry entry = snapshot.entries().get(index);
-			boolean rowHovered = mouseX >= getX() + 3 && mouseX < getRight() - 3
-				&& mouseY >= rowY && mouseY < rowY + ROW_HEIGHT;
-			context.fill(getX() + 3, rowY, getRight() - 3, rowY + ROW_HEIGHT - 1, rowHovered ? 0xCC3A3A48 : 0xAA292934);
+			boolean currentEntry = entry.position().equals(snapshot.openedEntryPosition());
+			boolean tooFar = isTooFar(entry);
+			boolean pending = entry.position().equals(pendingTarget);
+			int hoveredIndex = WorkshopSidebarLayout.rowAt(
+				mouseX, mouseY, getX() + 3, getRight() - 3, listTop, listBottom,
+				ROW_HEIGHT, scrollOffset, snapshot.entries().size()
+			);
+			boolean rowHovered = hoveredIndex == index;
+			int background = currentEntry ? 0xCC304866 : tooFar ? 0xAA202028 : pending ? 0xCC66552A : 0xAA292934;
+			if (rowHovered) {
+				background = currentEntry ? 0xDD3B5C80 : tooFar ? 0xCC34343A : pending ? 0xDD806B34 : 0xCC3A3A48;
+			}
+			context.fill(getX() + 3, rowY, getRight() - 3, rowY + ROW_HEIGHT - 1, background);
 			context.drawItem(entry.icon(), getX() + 7, rowY + 4);
 			String name = textRenderer.trimToWidth(entry.displayName().getString(), PANEL_WIDTH - 38);
-			context.drawTextWithShadow(textRenderer, name, getX() + 27, rowY + 3, 0xFFFFFF);
-			Text detail = Text.translatable(
-				entry.container() ? "gui.workshop_zone.sidebar.entry.container" : "gui.workshop_zone.sidebar.entry.workstation"
-			).append(" · ").append(String.format(Locale.ROOT, "%.1f", Math.sqrt(entry.distanceSquared())));
-			context.drawTextWithShadow(textRenderer, detail, getX() + 27, rowY + 14, 0xA8A8A8);
+			context.drawTextWithShadow(textRenderer, name, getX() + 27, rowY + 3, tooFar ? 0x8A8A8A : 0xFFFFFF);
+			Text detail;
+			if (currentEntry) {
+				detail = Text.translatable("gui.workshop_zone.sidebar.current");
+			} else if (pending) {
+				detail = Text.translatable("gui.workshop_zone.sidebar.switching");
+			} else if (tooFar) {
+				detail = Text.translatable("gui.workshop_zone.sidebar.too_far");
+			} else {
+				detail = Text.translatable(
+					entry.container() ? "gui.workshop_zone.sidebar.entry.container" : "gui.workshop_zone.sidebar.entry.workstation"
+				).append(" · ").append(String.format(Locale.ROOT, "%.1f", Math.sqrt(entry.distanceSquared())));
+			}
+			context.drawTextWithShadow(textRenderer, detail, getX() + 27, rowY + 14, tooFar ? 0x777777 : 0xA8A8A8);
 			if (rowHovered) {
 				hovered = entry;
+				hoveredState = detail;
 			}
 		}
 		context.disableScissor();
@@ -152,7 +188,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		}
 
 		if (hovered != null) {
-			context.drawTooltip(textRenderer, tooltip(hovered), mouseX, mouseY);
+			boolean currentEntry = hovered.position().equals(snapshot.openedEntryPosition());
+			context.drawTooltip(textRenderer, tooltip(hovered, currentEntry, isTooFar(hovered), hovered.position().equals(pendingTarget)), mouseX, mouseY);
 		} else if (inside(mouseX, mouseY, collapseX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			context.drawTooltip(textRenderer, Text.translatable("gui.workshop_zone.sidebar.collapse"), mouseX, mouseY);
 		} else if (inside(mouseX, mouseY, refreshX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
@@ -161,6 +198,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				: Text.translatable("gui.workshop_zone.sidebar.refresh");
 			context.drawTooltip(textRenderer, tooltip, mouseX, mouseY);
 		}
+		narratedEntry = hovered;
+		narratedState = hoveredState;
 	}
 
 	@Override
@@ -185,6 +224,20 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			&& ClientPlayNetworking.canSend(RequestWorkshopRefreshPayload.ID)) {
 			nextLocalRefreshAt = System.currentTimeMillis() + 1000L;
 			ClientPlayNetworking.send(new RequestWorkshopRefreshPayload(snapshot.sessionId(), snapshot.syncId()));
+			return;
+		}
+
+		int listTop = listTop(snapshot);
+		int listBottom = getY() + getHeight() - 4;
+		int row = WorkshopSidebarLayout.rowAt(
+			mouseX, mouseY, getX() + 3, getRight() - 3, listTop, listBottom,
+			ROW_HEIGHT, scrollOffset, snapshot.entries().size()
+		);
+		if (row >= 0) {
+			ClientWorkshopEntry entry = snapshot.entries().get(row);
+			if (canRequestSwitch(snapshot, entry)) {
+				sendOpenRequest(snapshot, entry);
+			}
 		}
 	}
 
@@ -201,6 +254,9 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	@Override
 	protected void appendClickableNarrations(NarrationMessageBuilder builder) {
 		builder.put(NarrationPart.TITLE, getMessage());
+		if (narratedEntry != null) {
+			builder.put(NarrationPart.USAGE, narratedEntry.displayName().copy().append(". ").append(narratedState));
+		}
 	}
 
 	private ClientWorkshopSnapshot matchingSnapshot() {
@@ -261,7 +317,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		context.drawCenteredTextWithShadow(MinecraftClient.getInstance().textRenderer, label, x + BUTTON_SIZE / 2, y + 4, 0xFFFFFF);
 	}
 
-	private static List<Text> tooltip(ClientWorkshopEntry entry) {
+	private static List<Text> tooltip(ClientWorkshopEntry entry, boolean current, boolean tooFar, boolean pending) {
 		List<Text> lines = new ArrayList<>();
 		lines.add(entry.displayName());
 		lines.add(Text.translatable(
@@ -276,7 +332,69 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			String.format(Locale.ROOT, "%.1f", Math.sqrt(entry.distanceSquared()))
 		).formatted(Formatting.GRAY));
 		lines.add(Text.translatable(entry.type().translationKey()).formatted(Formatting.GRAY));
+		if (current) {
+			lines.add(Text.translatable("gui.workshop_zone.sidebar.current").formatted(Formatting.AQUA));
+		} else if (pending) {
+			lines.add(Text.translatable("gui.workshop_zone.sidebar.switching").formatted(Formatting.YELLOW));
+		} else if (tooFar) {
+			lines.add(Text.translatable("gui.workshop_zone.sidebar.too_far").formatted(Formatting.DARK_GRAY));
+		} else {
+			lines.add(Text.translatable("gui.workshop_zone.sidebar.click_to_open").formatted(Formatting.GREEN));
+		}
 		return lines;
+	}
+
+	private int listTop(ClientWorkshopSnapshot snapshot) {
+		return getY() + HEADER_HEIGHT + (snapshot.truncated() ? 13 : 0);
+	}
+
+	private boolean canRequestSwitch(ClientWorkshopSnapshot snapshot, ClientWorkshopEntry entry) {
+		return pendingTarget == null
+			&& !entry.position().equals(snapshot.openedEntryPosition())
+			&& !isTooFar(entry)
+			&& ClientPlayNetworking.canSend(OpenWorkshopTargetPayload.ID);
+	}
+
+	private void sendOpenRequest(ClientWorkshopSnapshot snapshot, ClientWorkshopEntry entry) {
+		pendingTarget = entry.position();
+		pendingSessionId = snapshot.sessionId();
+		pendingRevision = snapshot.revision();
+		pendingSyncId = snapshot.syncId();
+		pendingExpiresAt = Util.getMeasuringTimeMs() + PENDING_TIMEOUT_MILLIS;
+		WorkshopZone.LOGGER.debug(
+			"Sending workshop switch request for target {} session {} revision {} syncId {}",
+			entry.position(), snapshot.sessionId(), snapshot.revision(), snapshot.syncId()
+		);
+		ClientPlayNetworking.send(new OpenWorkshopTargetPayload(
+			snapshot.sessionId(), snapshot.revision(), snapshot.syncId(), entry.position()
+		));
+	}
+
+	private void updatePending(ClientWorkshopSnapshot snapshot) {
+		if (pendingTarget == null) {
+			return;
+		}
+		if (snapshot == null
+			|| snapshot.sessionId() != pendingSessionId
+			|| snapshot.revision() != pendingRevision
+			|| snapshot.syncId() != pendingSyncId
+			|| screen.getScreenHandler().syncId != pendingSyncId
+			|| Util.getMeasuringTimeMs() >= pendingExpiresAt) {
+			pendingTarget = null;
+			pendingSessionId = -1;
+			pendingRevision = -1;
+			pendingSyncId = -1;
+			pendingExpiresAt = 0;
+		}
+	}
+
+	private static boolean isTooFar(ClientWorkshopEntry entry) {
+		MinecraftClient client = MinecraftClient.getInstance();
+		if (client.player == null) {
+			return true;
+		}
+		double distanceSquared = client.player.squaredDistanceTo(Vec3d.ofCenter(entry.position()));
+		return !Double.isFinite(distanceSquared) || distanceSquared > MAX_VISUAL_OPEN_DISTANCE_SQUARED;
 	}
 
 	private static boolean inside(double mouseX, double mouseY, int x, int y, int width, int height) {

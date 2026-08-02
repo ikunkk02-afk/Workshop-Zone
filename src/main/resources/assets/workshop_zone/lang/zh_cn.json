@@ -36,6 +36,20 @@
   "gui.workshop_zone.sidebar.entry.container": "容器",
   "gui.workshop_zone.sidebar.entry.workstation": "工作设备",
   "gui.workshop_zone.sidebar.truncated": "显示最近 %1$s / 共 %2$s",
+  "gui.workshop_zone.sidebar.click_to_open": "点击切换",
+  "gui.workshop_zone.sidebar.current": "当前设备",
+  "gui.workshop_zone.sidebar.too_far": "距离过远",
+  "gui.workshop_zone.sidebar.switching": "正在切换……",
   "message.workshop_zone.session.invalid": "当前工坊会话已失效",
-  "message.workshop_zone.session.out_of_range": "你距离当前工坊太远，无法刷新"
+  "message.workshop_zone.session.out_of_range": "你距离当前工坊太远，无法刷新",
+  "message.workshop_zone.open.invalid_session": "工坊会话已经失效",
+  "message.workshop_zone.open.stale_snapshot": "工坊列表已经变化，请刷新后重试",
+  "message.workshop_zone.open.not_in_session": "目标不在当前工坊区域中",
+  "message.workshop_zone.open.out_of_range": "目标工作方块距离过远",
+  "message.workshop_zone.open.chunk_unloaded": "目标所在区块未加载",
+  "message.workshop_zone.open.block_changed": "目标方块已经发生变化",
+  "message.workshop_zone.open.unavailable": "当前无法打开该工作方块",
+  "message.workshop_zone.open.denied": "你没有权限访问该工作方块",
+  "message.workshop_zone.open.cooldown": "操作过快，请稍后重试",
+  "message.workshop_zone.open.current": "该工作方块已经打开"
 }

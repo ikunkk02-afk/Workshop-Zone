@@ -22,7 +22,8 @@ class WorkshopSessionTest {
 
 		assertEquals(playerId, session.playerId());
 		assertEquals(World.OVERWORLD, session.dimension());
-		assertEquals(BlockPos.ORIGIN, session.center());
+		assertEquals(BlockPos.ORIGIN, session.scanCenter());
+		assertEquals(BlockPos.ORIGIN, session.openedEntryPosition());
 		assertEquals(1, refreshed.revision());
 		assertEquals(120, refreshed.lastRefreshAt());
 		assertEquals(session.sessionId(), refreshed.sessionId());
@@ -52,7 +53,7 @@ class WorkshopSessionTest {
 
 	private static WorkshopSession session(long id, UUID playerId, int syncId) {
 		return new WorkshopSession(
-			id, 0, playerId, World.OVERWORLD, BlockPos.ORIGIN, WorkshopBlockType.CHEST,
+			id, 0, playerId, World.OVERWORLD, BlockPos.ORIGIN, BlockPos.ORIGIN, WorkshopBlockType.CHEST,
 			syncId, 100, 80, emptyResult()
 		);
 	}

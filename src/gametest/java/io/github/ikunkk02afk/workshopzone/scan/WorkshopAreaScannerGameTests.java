@@ -1,10 +1,18 @@
 package io.github.ikunkk02afk.workshopzone.scan;
 
+import io.github.ikunkk02afk.workshopzone.session.WorkshopOpenResult;
+import io.github.ikunkk02afk.workshopzone.session.WorkshopSession;
+import io.github.ikunkk02afk.workshopzone.session.WorkshopSessionManager;
 import net.fabricmc.fabric.api.gametest.v1.FabricGameTest;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.Blocks;
 import net.minecraft.block.ChestBlock;
 import net.minecraft.block.enums.ChestType;
+import net.minecraft.item.ItemStack;
+import net.minecraft.item.Items;
+import net.minecraft.server.network.ServerPlayerEntity;
+import net.minecraft.screen.CraftingScreenHandler;
+import net.minecraft.screen.GenericContainerScreenHandler;
 import net.minecraft.test.GameTest;
 import net.minecraft.test.TestContext;
 import net.minecraft.registry.Registries;
@@ -186,6 +194,136 @@ public final class WorkshopAreaScannerGameTests implements FabricGameTest {
 
 		context.assertEquals(0, result.size(), "Unloaded chunks should produce no results");
 		context.assertEquals(0, access.blockReads, "Block states in unloaded chunks must never be read");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void serverValidatedSwitchReplacesCraftingSessionWithChestSession(TestContext context) {
+		BlockPos crafting = context.getAbsolutePos(CENTER);
+		BlockPos chest = context.getAbsolutePos(CENTER.add(2, 0, 0));
+		context.setBlockState(CENTER, Blocks.CRAFTING_TABLE);
+		context.setBlockState(CENTER.add(2, 0, 0), Blocks.CHEST);
+
+		ServerPlayerEntity player = context.createMockCreativeServerPlayerInWorld();
+		player.setPosition(crafting.getX() + 0.5, crafting.getY() + 1.0, crafting.getZ() + 0.5);
+		var factory = context.getWorld().getBlockState(crafting).createScreenHandlerFactory(context.getWorld(), crafting);
+		context.assertTrue(factory != null, "Crafting table should provide a vanilla screen handler factory");
+		context.assertTrue(player.openHandledScreen(factory).isPresent(), "Crafting table should open for the mock player");
+		context.assertTrue(player.currentScreenHandler instanceof CraftingScreenHandler, "Crafting handler should be active");
+		player.currentScreenHandler.getSlot(1).setStack(new ItemStack(Items.DIAMOND));
+
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, crafting, WorkshopBlockType.CRAFTING_TABLE);
+		WorkshopSession oldSession = manager.get(player.getUuid()).orElseThrow();
+		WorkshopOpenResult result = manager.openTarget(
+			player, oldSession.sessionId(), oldSession.revision(), oldSession.syncId(), chest
+		);
+
+		context.assertEquals(WorkshopOpenResult.SUCCESS, result, "Server should accept a target from the current snapshot");
+		context.assertTrue(player.currentScreenHandler instanceof GenericContainerScreenHandler, "Chest handler should replace crafting handler");
+		WorkshopSession newSession = manager.get(player.getUuid()).orElseThrow();
+		context.assertTrue(newSession.sessionId() > oldSession.sessionId(), "Switch should create a newer session");
+		context.assertEquals(chest, newSession.scanCenter(), "New session should scan around the opened target");
+		context.assertEquals(chest, newSession.openedEntryPosition(), "New session should identify the opened logical entry");
+		context.assertEquals(1, player.getInventory().count(Items.DIAMOND), "Vanilla close handling should return crafting input to the player");
+
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void changedSnapshotTargetIsRejectedAndSessionIsRefreshed(TestContext context) {
+		BlockPos crafting = context.getAbsolutePos(CENTER);
+		BlockPos target = context.getAbsolutePos(CENTER.add(2, 0, 0));
+		context.setBlockState(CENTER, Blocks.CRAFTING_TABLE);
+		context.setBlockState(CENTER.add(2, 0, 0), Blocks.CHEST);
+
+		ServerPlayerEntity player = context.createMockCreativeServerPlayerInWorld();
+		player.setPosition(crafting.getX() + 0.5, crafting.getY() + 1.0, crafting.getZ() + 0.5);
+		var factory = context.getWorld().getBlockState(crafting).createScreenHandlerFactory(context.getWorld(), crafting);
+		context.assertTrue(player.openHandledScreen(factory).isPresent(), "Crafting table should open");
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, crafting, WorkshopBlockType.CRAFTING_TABLE);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+
+		context.setBlockState(CENTER.add(2, 0, 0), Blocks.BARREL);
+		WorkshopOpenResult result = manager.openTarget(
+			player, session.sessionId(), session.revision(), session.syncId(), target
+		);
+
+		context.assertEquals(WorkshopOpenResult.BLOCK_CHANGED, result, "A replaced target must be rejected");
+		context.assertTrue(player.currentScreenHandler instanceof CraftingScreenHandler, "Rejected request must keep the current handler");
+		context.assertEquals(session.revision() + 1, manager.get(player.getUuid()).orElseThrow().revision(), "Changed target should refresh the snapshot");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void currentTargetAndRapidFollowupAreRejected(TestContext context) {
+		BlockPos crafting = context.getAbsolutePos(CENTER);
+		BlockPos chest = context.getAbsolutePos(CENTER.add(2, 0, 0));
+		context.setBlockState(CENTER, Blocks.CRAFTING_TABLE);
+		context.setBlockState(CENTER.add(2, 0, 0), Blocks.CHEST);
+
+		ServerPlayerEntity player = context.createMockCreativeServerPlayerInWorld();
+		player.setPosition(crafting.getX() + 0.5, crafting.getY() + 1.0, crafting.getZ() + 0.5);
+		var factory = context.getWorld().getBlockState(crafting).createScreenHandlerFactory(context.getWorld(), crafting);
+		context.assertTrue(player.openHandledScreen(factory).isPresent(), "Crafting table should open");
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, crafting, WorkshopBlockType.CRAFTING_TABLE);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+
+		context.assertEquals(
+			WorkshopOpenResult.CURRENT,
+			manager.openTarget(player, session.sessionId(), session.revision(), session.syncId(), crafting),
+			"Clicking the current logical entry must not create another handler"
+		);
+		context.assertEquals(
+			WorkshopOpenResult.COOLDOWN,
+			manager.openTarget(player, session.sessionId(), session.revision(), session.syncId(), chest),
+			"A followup request inside five server ticks must be throttled"
+		);
+		context.assertTrue(player.currentScreenHandler instanceof CraftingScreenHandler, "Rejected requests must retain the current handler");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void switchingToDoubleChestUsesVanillaSixRowHandler(TestContext context) {
+		BlockPos crafting = context.getAbsolutePos(CENTER);
+		BlockPos representative = context.getAbsolutePos(CENTER.add(2, 0, 0));
+		BlockState leftState = Blocks.CHEST.getDefaultState()
+			.with(ChestBlock.FACING, Direction.NORTH)
+			.with(ChestBlock.CHEST_TYPE, ChestType.LEFT);
+		BlockState rightState = Blocks.CHEST.getDefaultState()
+			.with(ChestBlock.FACING, Direction.NORTH)
+			.with(ChestBlock.CHEST_TYPE, ChestType.RIGHT);
+		context.setBlockState(CENTER, Blocks.CRAFTING_TABLE);
+		context.setBlockState(CENTER.add(2, 0, 0), leftState);
+		context.setBlockState(CENTER.add(3, 0, 0), rightState);
+
+		ServerPlayerEntity player = context.createMockCreativeServerPlayerInWorld();
+		player.setPosition(crafting.getX() + 0.5, crafting.getY() + 1.0, crafting.getZ() + 0.5);
+		var factory = context.getWorld().getBlockState(crafting).createScreenHandlerFactory(context.getWorld(), crafting);
+		context.assertTrue(player.openHandledScreen(factory).isPresent(), "Crafting table should open");
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, crafting, WorkshopBlockType.CRAFTING_TABLE);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+
+		WorkshopOpenResult result = manager.openTarget(
+			player, session.sessionId(), session.revision(), session.syncId(), representative
+		);
+
+		context.assertEquals(WorkshopOpenResult.SUCCESS, result, "Double chest representative should open");
+		context.assertTrue(player.currentScreenHandler instanceof GenericContainerScreenHandler, "Double chest should use a generic container handler");
+		context.assertEquals(90, player.currentScreenHandler.slots.size(), "Six-row chest plus player inventory should expose 90 slots");
+		context.assertEquals(1L, manager.get(player.getUuid()).orElseThrow().scanResult().entries().stream()
+			.filter(entry -> entry.type() == WorkshopBlockType.CHEST).count(), "Double chest should remain one logical entry");
+		manager.clear(player, false);
+		player.closeHandledScreen();
 		context.complete();
 	}
 

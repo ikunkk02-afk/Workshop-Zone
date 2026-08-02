@@ -93,7 +93,7 @@ public final class ClientWorkshopState {
 		loaded = true;
 		cleared = false;
 		current = new ClientWorkshopSnapshot(
-			payload.sessionId(), payload.revision(), payload.syncId(), payload.dimensionId(), payload.center(),
+			payload.sessionId(), payload.revision(), payload.syncId(), payload.dimensionId(), payload.scanCenter(), payload.openedEntryPosition(),
 			payload.openedBlockType(), payload.totalEntryCount(), payload.containerCount(), payload.workstationCount(),
 			payload.truncated(), entries
 		);

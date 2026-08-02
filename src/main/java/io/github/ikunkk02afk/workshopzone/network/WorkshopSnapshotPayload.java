@@ -18,7 +18,8 @@ public record WorkshopSnapshotPayload(
 	long revision,
 	int syncId,
 	Identifier dimensionId,
-	BlockPos center,
+	BlockPos scanCenter,
+	BlockPos openedEntryPosition,
 	WorkshopBlockType openedBlockType,
 	int totalEntryCount,
 	int containerCount,
@@ -34,7 +35,8 @@ public record WorkshopSnapshotPayload(
 
 	public WorkshopSnapshotPayload {
 		Objects.requireNonNull(dimensionId, "dimensionId");
-		center = Objects.requireNonNull(center, "center").toImmutable();
+		scanCenter = Objects.requireNonNull(scanCenter, "scanCenter").toImmutable();
+		openedEntryPosition = Objects.requireNonNull(openedEntryPosition, "openedEntryPosition").toImmutable();
 		Objects.requireNonNull(openedBlockType, "openedBlockType");
 		entries = List.copyOf(entries);
 		if (sessionId < 0 || revision < 0 || syncId < 0 || totalEntryCount < 0
@@ -55,7 +57,8 @@ public record WorkshopSnapshotPayload(
 		buf.writeVarLong(payload.revision);
 		buf.writeVarInt(payload.syncId);
 		buf.writeIdentifier(payload.dimensionId);
-		buf.writeBlockPos(payload.center);
+		buf.writeBlockPos(payload.scanCenter);
+		buf.writeBlockPos(payload.openedEntryPosition);
 		buf.writeIdentifier(payload.openedBlockType.networkId());
 		buf.writeVarInt(payload.totalEntryCount);
 		buf.writeVarInt(payload.containerCount);
@@ -70,7 +73,8 @@ public record WorkshopSnapshotPayload(
 		long revision = buf.readVarLong();
 		int syncId = buf.readVarInt();
 		Identifier dimensionId = buf.readIdentifier();
-		BlockPos center = buf.readBlockPos();
+		BlockPos scanCenter = buf.readBlockPos();
+		BlockPos openedEntryPosition = buf.readBlockPos();
 		Identifier openedTypeId = buf.readIdentifier();
 		WorkshopBlockType openedBlockType = WorkshopBlockType.fromNetworkId(openedTypeId)
 			.orElseThrow(() -> new DecoderException("Unknown opened workshop block type: " + openedTypeId));
@@ -88,7 +92,7 @@ public record WorkshopSnapshotPayload(
 		}
 		try {
 			return new WorkshopSnapshotPayload(
-				sessionId, revision, syncId, dimensionId, center, openedBlockType, totalEntryCount,
+				sessionId, revision, syncId, dimensionId, scanCenter, openedEntryPosition, openedBlockType, totalEntryCount,
 				containerCount, workstationCount, truncated, entries
 			);
 		} catch (IllegalArgumentException exception) {

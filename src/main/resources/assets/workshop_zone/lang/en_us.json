@@ -36,6 +36,20 @@
   "gui.workshop_zone.sidebar.entry.container": "Container",
   "gui.workshop_zone.sidebar.entry.workstation": "Work device",
   "gui.workshop_zone.sidebar.truncated": "Showing nearest %1$s of %2$s",
+  "gui.workshop_zone.sidebar.click_to_open": "Click to switch",
+  "gui.workshop_zone.sidebar.current": "Current device",
+  "gui.workshop_zone.sidebar.too_far": "Too far away",
+  "gui.workshop_zone.sidebar.switching": "Switching...",
   "message.workshop_zone.session.invalid": "The current workshop session is no longer valid",
-  "message.workshop_zone.session.out_of_range": "You are too far from this workshop to refresh it"
+  "message.workshop_zone.session.out_of_range": "You are too far from this workshop to refresh it",
+  "message.workshop_zone.open.invalid_session": "The workshop session is no longer valid",
+  "message.workshop_zone.open.stale_snapshot": "The workshop list has changed; refresh and try again",
+  "message.workshop_zone.open.not_in_session": "The target is not in the current workshop area",
+  "message.workshop_zone.open.out_of_range": "The target workstation is too far away",
+  "message.workshop_zone.open.chunk_unloaded": "The target chunk is not loaded",
+  "message.workshop_zone.open.block_changed": "The target block has changed",
+  "message.workshop_zone.open.unavailable": "That workstation cannot be opened right now",
+  "message.workshop_zone.open.denied": "You do not have permission to access that workstation",
+  "message.workshop_zone.open.cooldown": "You are switching too quickly; please try again shortly",
+  "message.workshop_zone.open.current": "That workstation is already open"
 }

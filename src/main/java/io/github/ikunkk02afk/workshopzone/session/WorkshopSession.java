@@ -14,7 +14,8 @@ public record WorkshopSession(
 	long revision,
 	UUID playerId,
 	RegistryKey<World> dimension,
-	BlockPos center,
+	BlockPos scanCenter,
+	BlockPos openedEntryPosition,
 	WorkshopBlockType openedBlockType,
 	int syncId,
 	long createdAt,
@@ -24,7 +25,8 @@ public record WorkshopSession(
 	public WorkshopSession {
 		Objects.requireNonNull(playerId, "playerId");
 		Objects.requireNonNull(dimension, "dimension");
-		center = Objects.requireNonNull(center, "center").toImmutable();
+		scanCenter = Objects.requireNonNull(scanCenter, "scanCenter").toImmutable();
+		openedEntryPosition = Objects.requireNonNull(openedEntryPosition, "openedEntryPosition").toImmutable();
 		Objects.requireNonNull(openedBlockType, "openedBlockType");
 		Objects.requireNonNull(scanResult, "scanResult");
 		if (sessionId < 0 || revision < 0 || syncId < 0) {
@@ -34,7 +36,7 @@ public record WorkshopSession(
 
 	public WorkshopSession refreshed(long refreshAt, WorkshopScanResult result) {
 		return new WorkshopSession(
-			sessionId, revision + 1, playerId, dimension, center, openedBlockType,
+			sessionId, revision + 1, playerId, dimension, scanCenter, openedEntryPosition, openedBlockType,
 			syncId, createdAt, refreshAt, result
 		);
 	}

@@ -11,7 +11,8 @@ public record ClientWorkshopSnapshot(
 	long revision,
 	int syncId,
 	Identifier dimensionId,
-	BlockPos center,
+	BlockPos scanCenter,
+	BlockPos openedEntryPosition,
 	WorkshopBlockType openedBlockType,
 	int totalEntryCount,
 	int containerCount,
@@ -20,7 +21,8 @@ public record ClientWorkshopSnapshot(
 	List<ClientWorkshopEntry> entries
 ) {
 	public ClientWorkshopSnapshot {
-		center = center.toImmutable();
+		scanCenter = scanCenter.toImmutable();
+		openedEntryPosition = openedEntryPosition.toImmutable();
 		entries = List.copyOf(entries);
 	}
 }
