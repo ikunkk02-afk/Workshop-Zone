@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.mixin;
 
+import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockCatalog;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
 import io.github.ikunkk02afk.workshopzone.session.WorkshopSessionManager;
@@ -52,6 +53,10 @@ public abstract class ServerPlayerInteractionManagerMixin {
 			WorkshopBlockType type = WorkshopBlockCatalog.vanilla()
 				.find(world.getBlockState(hitResult.getBlockPos()).getBlock()).orElse(null);
 			if (type != null && WorkshopSessionManager.matchesHandler(type, player.currentScreenHandler)) {
+				WorkshopZone.LOGGER.debug(
+					"Confirmed supported block screen for player {} at {} type {} syncId {}",
+					player.getGameProfile().getName(), hitResult.getBlockPos(), type, player.currentScreenHandler.syncId
+				);
 				WorkshopSessionManager.getInstance().open(player, hitResult.getBlockPos(), type);
 			}
 		} finally {

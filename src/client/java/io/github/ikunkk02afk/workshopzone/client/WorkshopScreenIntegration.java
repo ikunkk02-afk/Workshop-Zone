@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
+import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.screen.Screen;
@@ -21,8 +22,15 @@ public final class WorkshopScreenIntegration {
 			if (!(screen instanceof HandledScreen<?> handledScreen) || !isSupported(screen)) {
 				return;
 			}
-			Screens.getButtons(screen).removeIf(WorkshopSidebarWidget.class::isInstance);
-			Screens.getButtons(screen).add(new WorkshopSidebarWidget(handledScreen));
+			WorkshopWidgetRegistry.replaceSingle(
+				Screens.getButtons(screen),
+				WorkshopSidebarWidget.class::isInstance,
+				() -> new WorkshopSidebarWidget(handledScreen)
+			);
+			WorkshopZone.LOGGER.debug(
+				"Added workshop sidebar to screen {} with syncId {}",
+				screen.getClass().getName(), handledScreen.getScreenHandler().syncId
+			);
 			ScreenEvents.remove(screen).register(removed ->
 				ClientWorkshopState.clearForScreen(handledScreen.getScreenHandler().syncId)
 			);

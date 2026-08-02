@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.network;
 
+import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockEntry;
 import io.github.ikunkk02afk.workshopzone.session.WorkshopSession;
 import io.github.ikunkk02afk.workshopzone.session.WorkshopSessionManager;
@@ -56,6 +57,10 @@ public final class WorkshopNetworking {
 		}
 
 		List<WorkshopNetworkEntry> entries = limitEntries(allEntries);
+		WorkshopZone.LOGGER.debug(
+			"Sending workshop snapshot to player {}: session {} syncId {} with {} entries",
+			player.getGameProfile().getName(), session.sessionId(), session.syncId(), entries.size()
+		);
 		ServerPlayNetworking.send(player, new WorkshopSnapshotPayload(
 			session.sessionId(),
 			session.revision(),

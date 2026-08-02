@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.session;
 
+import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworking;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopAreaScanner;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockCatalog;
@@ -79,6 +80,10 @@ public final class WorkshopSessionManager {
 		WorkshopSession session = new WorkshopSession(
 			nextSessionId.incrementAndGet(), 0, player.getUuid(), world.getRegistryKey(), center,
 			type, player.currentScreenHandler.syncId, now, now - REFRESH_COOLDOWN_TICKS, result
+		);
+		WorkshopZone.LOGGER.debug(
+			"Created workshop session {} for player {} at {} syncId {}; scan found {} entries",
+			session.sessionId(), player.getGameProfile().getName(), center, session.syncId(), result.size()
 		);
 		WorkshopSession previous = sessions.put(session);
 		if (previous != null) {

@@ -35,20 +35,19 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	public WorkshopSidebarWidget(HandledScreen<?> screen) {
 		super(0, 0, PANEL_WIDTH, 120, Text.translatable("gui.workshop_zone.sidebar.title"));
 		this.screen = screen;
-		this.visible = false;
 	}
 
 	@Override
 	protected void renderWidget(DrawContext context, int mouseX, int mouseY, float delta) {
-		ClientWorkshopSnapshot snapshot = matchingSnapshot();
-		if (snapshot == null) {
-			visible = false;
-			return;
-		}
-		visible = true;
-		active = true;
+		ClientWorkshopSnapshot current = ClientWorkshopState.current();
+		ClientWorkshopSnapshot snapshot = matchingSnapshot(current);
+		WorkshopSidebarPresentation presentation = WorkshopSidebarPresentation.resolve(
+			current != null, snapshot != null, ClientWorkshopState.wasClearedByServer()
+		);
+		visible = presentation.frameworkVisible();
+		active = presentation.interactive();
 		if (!updateBounds()) {
-			visible = false;
+			active = false;
 			return;
 		}
 		boolean expanded = WorkshopScreenIntegration.isExpanded() && !forcedCollapsed;
@@ -66,6 +65,15 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		context.fill(getX(), getY(), getRight(), getY() + getHeight(), 0xE6101018);
 		context.fill(getX() + 1, getY() + 1, getRight() - 1, getY() + HEADER_HEIGHT, 0xEE242432);
 		context.drawTextWithShadow(textRenderer, Text.translatable("gui.workshop_zone.sidebar.title"), getX() + 7, getY() + 6, 0xFFFFFF);
+		if (snapshot == null) {
+			Text status = Text.translatable(
+				presentation == WorkshopSidebarPresentation.NO_SESSION
+					? "gui.workshop_zone.sidebar.no_session"
+					: "gui.workshop_zone.sidebar.loading"
+			);
+			context.drawTextWithShadow(textRenderer, status, getX() + 7, getY() + 23, 0xA8A8A8);
+			return;
+		}
 		context.drawTextWithShadow(
 			textRenderer,
 			Text.translatable("gui.workshop_zone.sidebar.containers", snapshot.containerCount()),
@@ -177,7 +185,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
-		if (!visible || !isMouseOver(mouseX, mouseY) || !WorkshopScreenIntegration.isExpanded() || forcedCollapsed) {
+		if (matchingSnapshot() == null || !isMouseOver(mouseX, mouseY)
+			|| !WorkshopScreenIntegration.isExpanded() || forcedCollapsed) {
 			return false;
 		}
 		scrollOffset = Math.max(0, scrollOffset - (int)Math.signum(verticalAmount) * ROW_HEIGHT);
@@ -190,7 +199,10 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	}
 
 	private ClientWorkshopSnapshot matchingSnapshot() {
-		ClientWorkshopSnapshot snapshot = ClientWorkshopState.current();
+		return matchingSnapshot(ClientWorkshopState.current());
+	}
+
+	private ClientWorkshopSnapshot matchingSnapshot(ClientWorkshopSnapshot snapshot) {
 		return snapshot != null && snapshot.syncId() == screen.getScreenHandler().syncId ? snapshot : null;
 	}
 

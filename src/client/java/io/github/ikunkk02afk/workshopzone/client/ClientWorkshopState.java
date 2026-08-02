@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
+import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.network.ClearWorkshopSessionPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworkEntry;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotOrder;
@@ -44,14 +45,35 @@ public final class ClientWorkshopState {
 	}
 
 	public static boolean accept(MinecraftClient client, WorkshopSnapshotPayload payload) {
-		if (client.player == null || client.world == null
-			|| client.player.currentScreenHandler.syncId != payload.syncId()
-			|| !client.world.getRegistryKey().getValue().equals(payload.dimensionId())) {
+		if (client.player == null) {
+			WorkshopZone.LOGGER.debug("Rejected workshop snapshot session {} revision {}: no client player", payload.sessionId(), payload.revision());
+			return false;
+		}
+		if (client.world == null) {
+			WorkshopZone.LOGGER.debug("Rejected workshop snapshot session {} revision {}: no client world", payload.sessionId(), payload.revision());
+			return false;
+		}
+		if (client.player.currentScreenHandler.syncId != payload.syncId()) {
+			WorkshopZone.LOGGER.debug(
+				"Rejected workshop snapshot session {} revision {}: syncId {} does not match current {}",
+				payload.sessionId(), payload.revision(), payload.syncId(), client.player.currentScreenHandler.syncId
+			);
+			return false;
+		}
+		if (!client.world.getRegistryKey().getValue().equals(payload.dimensionId())) {
+			WorkshopZone.LOGGER.debug(
+				"Rejected workshop snapshot session {} revision {}: dimension {} does not match current {}",
+				payload.sessionId(), payload.revision(), payload.dimensionId(), client.world.getRegistryKey().getValue()
+			);
 			return false;
 		}
 		if (!WorkshopSnapshotOrder.isNewer(
 			payload.sessionId(), payload.revision(), acceptedSessionId, acceptedRevision
 		)) {
+			WorkshopZone.LOGGER.debug(
+				"Rejected workshop snapshot session {} revision {}: not newer than accepted session {} revision {}",
+				payload.sessionId(), payload.revision(), acceptedSessionId, acceptedRevision
+			);
 			return false;
 		}
 
@@ -75,10 +97,17 @@ public final class ClientWorkshopState {
 			payload.openedBlockType(), payload.totalEntryCount(), payload.containerCount(), payload.workstationCount(),
 			payload.truncated(), entries
 		);
+		WorkshopZone.LOGGER.debug(
+			"Accepted workshop snapshot session {} revision {} syncId {} with {} entries",
+			payload.sessionId(), payload.revision(), payload.syncId(), entries.size()
+		);
 		return true;
 	}
 
 	public static void acceptClear(ClearWorkshopSessionPayload payload) {
+		WorkshopZone.LOGGER.debug(
+			"Received workshop session clear for session {} syncId {}", payload.sessionId(), payload.syncId()
+		);
 		if (payload.sessionId() < acceptedSessionId) {
 			return;
 		}
