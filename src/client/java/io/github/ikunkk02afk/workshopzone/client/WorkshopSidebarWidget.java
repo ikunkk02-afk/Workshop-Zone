@@ -4,6 +4,9 @@ import io.github.ikunkk02afk.workshopzone.mixin.client.HandledScreenAccessor;
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.network.OpenWorkshopTargetPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestWorkshopRefreshPayload;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResultPayload;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelOperation;
+import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -14,7 +17,11 @@ import net.minecraft.client.gui.screen.narration.NarrationPart;
 import net.minecraft.client.gui.screen.recipebook.RecipeBookProvider;
 import net.minecraft.client.gui.widget.ClickableWidget;
 import net.minecraft.text.Text;
+import net.minecraft.item.Item;
+import net.minecraft.item.ItemStack;
+import net.minecraft.registry.Registries;
 import net.minecraft.util.Formatting;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.Util;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.util.math.BlockPos;
@@ -46,6 +53,13 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private long pendingExpiresAt;
 	private ClientWorkshopEntry narratedEntry;
 	private Text narratedState;
+	private boolean labelEditor;
+	private Identifier candidateItemId;
+	private Item candidateItem;
+	private ItemStack candidateIcon = ItemStack.EMPTY;
+	private boolean labelPending;
+	private Text labelResult;
+	private long observedLabelResultSequence;
 
 	public WorkshopSidebarWidget(HandledScreen<?> screen, boolean showWhileLoading) {
 		super(0, 0, PANEL_WIDTH, 120, Text.translatable("gui.workshop_zone.sidebar.title"));
@@ -107,8 +121,17 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 
 		int collapseX = getRight() - BUTTON_SIZE - 3;
 		int refreshX = collapseX - BUTTON_SIZE - 2;
+		int labelX = refreshX - BUTTON_SIZE - 2;
 		drawSmallButton(context, collapseX, getY() + 4, "<", mouseX, mouseY);
 		drawSmallButton(context, refreshX, getY() + 4, "R", mouseX, mouseY);
+		if (supportsLabelEditor(snapshot)) {
+			drawSmallButton(context, labelX, getY() + 4, "L", mouseX, mouseY);
+		}
+		updateLabelResult(snapshot);
+		if (labelEditor && supportsLabelEditor(snapshot)) {
+			renderLabelEditor(context, snapshot, mouseX, mouseY);
+			return;
+		}
 
 		int listTop = getY() + HEADER_HEIGHT + (snapshot.truncated() ? 13 : 0);
 		if (snapshot.truncated()) {
@@ -156,8 +179,14 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			}
 			context.fill(getX() + 3, rowY, getRight() - 3, rowY + ROW_HEIGHT - 1, background);
 			context.drawItem(entry.icon(), getX() + 7, rowY + 4);
-			String name = textRenderer.trimToWidth(entry.displayName().getString(), PANEL_WIDTH - 38);
+			boolean hasRightIcon = entry.labelSummary().hasLabel() || entry.labelSummary().conflict();
+			String name = textRenderer.trimToWidth(entry.displayName().getString(), PANEL_WIDTH - (hasRightIcon ? 58 : 38));
 			context.drawTextWithShadow(textRenderer, name, getX() + 27, rowY + 3, tooFar ? 0x8A8A8A : 0xFFFFFF);
+			if (entry.labelSummary().conflict()) {
+				context.drawCenteredTextWithShadow(textRenderer, "!", getRight() - 14, rowY + 8, 0xFF5555);
+			} else if (!entry.labelIcon().isEmpty()) {
+				context.drawItem(entry.labelIcon(), getRight() - 23, rowY + 4);
+			}
 			Text detail;
 			if (currentEntry) {
 				detail = Text.translatable("gui.workshop_zone.sidebar.current");
@@ -197,6 +226,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				? Text.translatable("gui.workshop_zone.sidebar.refresh_cooldown")
 				: Text.translatable("gui.workshop_zone.sidebar.refresh");
 			context.drawTooltip(textRenderer, tooltip, mouseX, mouseY);
+		} else if (supportsLabelEditor(snapshot) && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+			context.drawTooltip(textRenderer, Text.translatable("gui.workshop_zone.label.button"), mouseX, mouseY);
 		}
 		narratedEntry = hovered;
 		narratedState = hoveredState;
@@ -215,6 +246,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		}
 		int collapseX = getRight() - BUTTON_SIZE - 3;
 		int refreshX = collapseX - BUTTON_SIZE - 2;
+		int labelX = refreshX - BUTTON_SIZE - 2;
 		if (inside(mouseX, mouseY, collapseX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			WorkshopScreenIntegration.setExpanded(false);
 			return;
@@ -224,6 +256,18 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			&& ClientPlayNetworking.canSend(RequestWorkshopRefreshPayload.ID)) {
 			nextLocalRefreshAt = System.currentTimeMillis() + 1000L;
 			ClientPlayNetworking.send(new RequestWorkshopRefreshPayload(snapshot.sessionId(), snapshot.syncId()));
+			return;
+		}
+		if (supportsLabelEditor(snapshot) && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+			labelEditor = true;
+			candidateItemId = null;
+			candidateItem = null;
+			candidateIcon = ItemStack.EMPTY;
+			labelResult = null;
+			return;
+		}
+		if (labelEditor && supportsLabelEditor(snapshot)) {
+			handleLabelEditorClick(snapshot, mouseX, mouseY);
 			return;
 		}
 
@@ -244,7 +288,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
 		if (matchingSnapshot() == null || !isMouseOver(mouseX, mouseY)
-			|| !WorkshopScreenIntegration.isExpanded() || forcedCollapsed) {
+			|| !WorkshopScreenIntegration.isExpanded() || forcedCollapsed || labelEditor) {
 			return false;
 		}
 		scrollOffset = Math.max(0, scrollOffset - (int)Math.signum(verticalAmount) * ROW_HEIGHT);
@@ -332,6 +376,11 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			String.format(Locale.ROOT, "%.1f", Math.sqrt(entry.distanceSquared()))
 		).formatted(Formatting.GRAY));
 		lines.add(Text.translatable(entry.type().translationKey()).formatted(Formatting.GRAY));
+		if (entry.labelSummary().conflict()) {
+			lines.add(Text.translatable("gui.workshop_zone.label.conflict").formatted(Formatting.RED));
+		} else if (entry.labelSummary().hasLabel()) {
+			lines.add(Text.translatable("gui.workshop_zone.label.allowed_item", entry.labelIcon().getName()).formatted(Formatting.GOLD));
+		}
 		if (current) {
 			lines.add(Text.translatable("gui.workshop_zone.sidebar.current").formatted(Formatting.AQUA));
 		} else if (pending) {
@@ -399,5 +448,120 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 
 	private static boolean inside(double mouseX, double mouseY, int x, int y, int width, int height) {
 		return mouseX >= x && mouseX < x + width && mouseY >= y && mouseY < y + height;
+	}
+
+	private boolean supportsLabelEditor(ClientWorkshopSnapshot snapshot) {
+		return switch (snapshot.openedBlockType()) {
+			case CHEST, TRAPPED_CHEST, BARREL -> snapshot.entries().stream()
+				.anyMatch(entry -> entry.position().equals(snapshot.openedEntryPosition()));
+			default -> false;
+		};
+	}
+
+	private ClientWorkshopEntry openedEntry(ClientWorkshopSnapshot snapshot) {
+		return snapshot.entries().stream()
+			.filter(entry -> entry.position().equals(snapshot.openedEntryPosition()))
+			.findFirst().orElse(null);
+	}
+
+	private void renderLabelEditor(DrawContext context, ClientWorkshopSnapshot snapshot, int mouseX, int mouseY) {
+		TextRenderer renderer = MinecraftClient.getInstance().textRenderer;
+		ClientWorkshopEntry opened = openedEntry(snapshot);
+		int top = getY() + HEADER_HEIGHT + 3;
+		context.drawTextWithShadow(renderer, Text.translatable("gui.workshop_zone.label.title"), getX() + 7, top, 0xFFFFFF);
+		Text current = Text.translatable("gui.workshop_zone.label.none");
+		if (opened != null && opened.labelSummary().conflict()) {
+			current = Text.translatable("gui.workshop_zone.label.conflict").formatted(Formatting.RED);
+		} else if (opened != null && opened.labelSummary().hasLabel()) {
+			current = Text.translatable("gui.workshop_zone.label.allowed_item", opened.labelIcon().getName());
+		}
+		context.drawTextWithShadow(renderer, Text.translatable("gui.workshop_zone.label.current"), getX() + 7, top + 15, 0xA8A8A8);
+		context.drawTextWithShadow(renderer, renderer.trimToWidth(current.getString(), PANEL_WIDTH - 14), getX() + 7, top + 27, 0xFFD080);
+		context.drawTextWithShadow(renderer, Text.translatable("gui.workshop_zone.label.candidate"), getX() + 7, top + 43, 0xA8A8A8);
+		if (candidateItemId == null) {
+			context.drawTextWithShadow(renderer, Text.translatable("gui.workshop_zone.label.none"), getX() + 7, top + 55, 0x777777);
+		} else {
+			context.drawItem(candidateIcon, getX() + 7, top + 52);
+			context.drawTextWithShadow(renderer, renderer.trimToWidth(candidateItem.getName().getString(), PANEL_WIDTH - 40), getX() + 27, top + 52, 0xFFFFFF);
+			context.drawTextWithShadow(renderer, renderer.trimToWidth(candidateItemId.toString(), PANEL_WIDTH - 40), getX() + 27, top + 63, 0x888888);
+		}
+		int buttonTop = getY() + getHeight() - 43;
+		drawTextButton(context, getX() + 5, buttonTop, 70, Text.translatable("gui.workshop_zone.label.use_cursor"), !labelPending && !getCursorStack().isEmpty(), mouseX, mouseY);
+		drawTextButton(context, getX() + 79, buttonTop, 70, Text.translatable("gui.workshop_zone.label.clear"), !labelPending, mouseX, mouseY);
+		drawTextButton(context, getX() + 5, buttonTop + 20, 70, Text.translatable("gui.workshop_zone.label.save"), !labelPending && candidateItemId != null && (opened == null || !opened.labelSummary().conflict()), mouseX, mouseY);
+		drawTextButton(context, getX() + 79, buttonTop + 20, 70, Text.translatable("gui.workshop_zone.label.cancel"), !labelPending, mouseX, mouseY);
+		if (labelPending || labelResult != null) {
+			Text state = labelPending ? Text.translatable("gui.workshop_zone.label.pending") : labelResult;
+			context.drawTextWithShadow(renderer, renderer.trimToWidth(state.getString(), PANEL_WIDTH - 14), getX() + 7, buttonTop - 12, labelPending ? 0xFFFF80 : 0xFFAAAA);
+		}
+		if (inside(mouseX, mouseY, getX() + 5, buttonTop, 70, 18) && getCursorStack().isEmpty()) {
+			context.drawTooltip(renderer, Text.translatable("gui.workshop_zone.label.cursor_empty"), mouseX, mouseY);
+		}
+	}
+
+	private void handleLabelEditorClick(ClientWorkshopSnapshot snapshot, double mouseX, double mouseY) {
+		if (labelPending) {
+			return;
+		}
+		int buttonTop = getY() + getHeight() - 43;
+		if (inside(mouseX, mouseY, getX() + 5, buttonTop, 70, 18)) {
+			ItemStack cursor = getCursorStack();
+			if (!cursor.isEmpty()) {
+				candidateItemId = Registries.ITEM.getId(cursor.getItem());
+				candidateItem = cursor.getItem();
+				candidateIcon = new ItemStack(candidateItem);
+				labelResult = null;
+			}
+		} else if (inside(mouseX, mouseY, getX() + 79, buttonTop, 70, 18)) {
+			sendLabelEdit(snapshot, ContainerLabelOperation.CLEAR, null);
+		} else if (inside(mouseX, mouseY, getX() + 5, buttonTop + 20, 70, 18) && candidateItemId != null) {
+			ClientWorkshopEntry opened = openedEntry(snapshot);
+			if (opened == null || !opened.labelSummary().conflict()) {
+				sendLabelEdit(snapshot, ContainerLabelOperation.SET_EXACT_ITEM, candidateItemId);
+			}
+		} else if (inside(mouseX, mouseY, getX() + 79, buttonTop + 20, 70, 18)) {
+			labelEditor = false;
+			candidateItemId = null;
+			candidateItem = null;
+			candidateIcon = ItemStack.EMPTY;
+			labelResult = null;
+		}
+	}
+
+	private void sendLabelEdit(ClientWorkshopSnapshot snapshot, ContainerLabelOperation operation, Identifier itemId) {
+		if (!ClientPlayNetworking.canSend(UpdateContainerLabelPayload.ID)) {
+			return;
+		}
+		labelPending = true;
+		labelResult = null;
+		observedLabelResultSequence = ClientContainerLabelState.resultSequence();
+		ClientPlayNetworking.send(new UpdateContainerLabelPayload(
+			snapshot.sessionId(), snapshot.revision(), snapshot.syncId(), snapshot.openedEntryPosition(), operation,
+			java.util.Optional.ofNullable(itemId)
+		));
+	}
+
+	private void updateLabelResult(ClientWorkshopSnapshot snapshot) {
+		long sequence = ClientContainerLabelState.resultSequence();
+		if (sequence == observedLabelResultSequence) {
+			return;
+		}
+		observedLabelResultSequence = sequence;
+		ContainerLabelEditResultPayload result = ClientContainerLabelState.lastResult();
+		if (result != null && result.sessionId() == snapshot.sessionId() && result.syncId() == snapshot.syncId()) {
+			labelPending = false;
+			labelResult = Text.translatable(result.result().translationKey());
+		}
+	}
+
+	private ItemStack getCursorStack() {
+		return screen.getScreenHandler().getCursorStack();
+	}
+
+	private void drawTextButton(DrawContext context, int x, int y, int width, Text text, boolean enabled, int mouseX, int mouseY) {
+		int color = !enabled ? 0xFF292930 : inside(mouseX, mouseY, x, y, width, 18) ? 0xFF626274 : 0xFF424250;
+		context.fill(x, y, x + width, y + 18, color);
+		TextRenderer renderer = MinecraftClient.getInstance().textRenderer;
+		context.drawCenteredTextWithShadow(renderer, renderer.trimToWidth(text.getString(), width - 4), x + width / 2, y + 5, enabled ? 0xFFFFFF : 0x777777);
 	}
 }

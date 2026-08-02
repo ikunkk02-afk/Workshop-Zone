@@ -40,4 +40,11 @@ public record WorkshopSession(
 			syncId, createdAt, refreshAt, result
 		);
 	}
+
+	public WorkshopSession labelEdited(WorkshopScanResult result) {
+		return new WorkshopSession(
+			sessionId, revision + 1, playerId, dimension, scanCenter, openedEntryPosition, openedBlockType,
+			syncId, createdAt, lastRefreshAt, result
+		);
+	}
 }

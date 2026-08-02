@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.scan;
 
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
@@ -11,12 +12,14 @@ public record WorkshopBlockEntry(
 	Identifier blockId,
 	double distanceSquared,
 	boolean container,
-	boolean processingDevice
+	boolean processingDevice,
+	ContainerLabelSummary labelSummary
 ) {
 	public WorkshopBlockEntry {
 		Objects.requireNonNull(type, "type");
 		position = Objects.requireNonNull(position, "position").toImmutable();
 		Objects.requireNonNull(blockId, "blockId");
+		Objects.requireNonNull(labelSummary, "labelSummary");
 		if (distanceSquared < 0.0) {
 			throw new IllegalArgumentException("distanceSquared must not be negative");
 		}
@@ -37,7 +40,12 @@ public record WorkshopBlockEntry(
 			blockId,
 			distanceSquared,
 			type.isContainer(),
-			type.isProcessingDevice()
+			type.isProcessingDevice(),
+			ContainerLabelSummary.NONE
 		);
+	}
+
+	public WorkshopBlockEntry withLabelSummary(ContainerLabelSummary summary) {
+		return new WorkshopBlockEntry(type, position, blockId, distanceSquared, container, processingDevice, summary);
 	}
 }

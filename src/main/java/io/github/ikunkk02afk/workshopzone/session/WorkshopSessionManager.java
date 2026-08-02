@@ -2,6 +2,17 @@ package io.github.ikunkk02afk.workshopzone.session;
 
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.api.WorkshopRemoteOpenCallback;
+import io.github.ikunkk02afk.workshopzone.api.ContainerLabelEditCallback;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelMode;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelFeedback;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelRule;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelService;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary;
+import io.github.ikunkk02afk.workshopzone.label.LogicalContainer;
+import io.github.ikunkk02afk.workshopzone.label.WorkshopContainerResolver;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelOperation;
+import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworking;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopAreaScanner;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockCatalog;
@@ -32,6 +43,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
+import net.minecraft.item.Item;
+import net.minecraft.item.Items;
+import net.minecraft.registry.Registries;
 import net.minecraft.block.BlockState;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkSectionPos;
@@ -47,6 +61,7 @@ import java.util.concurrent.atomic.AtomicLong;
 public final class WorkshopSessionManager {
 	public static final int REFRESH_COOLDOWN_TICKS = 20;
 	public static final int OPEN_COOLDOWN_TICKS = 5;
+	public static final int LABEL_EDIT_COOLDOWN_TICKS = 10;
 	public static final double MAX_CENTER_DISTANCE_SQUARED = 64.0;
 	public static final double MAX_REMOTE_OPEN_DISTANCE_SQUARED = 64.0;
 
@@ -56,6 +71,7 @@ public final class WorkshopSessionManager {
 	private final AtomicLong nextSessionId = new AtomicLong();
 	private final WorkshopAreaScanner scanner = new WorkshopAreaScanner();
 	private final Map<UUID, Long> lastOpenRequestTicks = new HashMap<>();
+	private final Map<UUID, Long> lastLabelEditTicks = new HashMap<>();
 	private boolean eventsRegistered;
 	private int cleanupTicker;
 
@@ -81,8 +97,128 @@ public final class WorkshopSessionManager {
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			clear(handler.player, false);
 			lastOpenRequestTicks.remove(handler.player.getUuid());
+			lastLabelEditTicks.remove(handler.player.getUuid());
+			ContainerLabelFeedback.clear(handler.player.getUuid());
 		});
 		ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
+	}
+
+	public ContainerLabelEditResult updateContainerLabel(ServerPlayerEntity player, UpdateContainerLabelPayload payload) {
+		WorkshopSession session = sessions.get(player.getUuid()).orElse(null);
+		if (session == null || session.sessionId() != payload.sessionId()) {
+			return labelReject(player, payload, ContainerLabelEditResult.INVALID_SESSION);
+		}
+		if (session.revision() != payload.revision()) {
+			return labelReject(player, payload, ContainerLabelEditResult.STALE_SNAPSHOT);
+		}
+		if (session.syncId() != payload.syncId()
+			|| player.currentScreenHandler.syncId != payload.syncId()
+			|| !session.dimension().equals(player.getServerWorld().getRegistryKey())
+			|| !session.openedEntryPosition().equals(payload.openedEntryPosition())) {
+			return labelReject(player, payload, ContainerLabelEditResult.INVALID_SESSION);
+		}
+		if (!session.openedBlockType().isContainer()
+			|| !matchesHandler(session.openedBlockType(), player.currentScreenHandler)
+			|| !(player.currentScreenHandler instanceof GenericContainerScreenHandler handler)) {
+			return labelReject(player, payload, ContainerLabelEditResult.NOT_CONTAINER);
+		}
+		if (validate(player, session) != WorkshopSessionValidation.VALID) {
+			return labelReject(player, payload, ContainerLabelEditResult.INVALID_SESSION);
+		}
+
+		WorkshopContainerResolver.Result resolved = WorkshopContainerResolver.resolve(
+			player.getServerWorld(), session.openedEntryPosition()
+		);
+		if (!resolved.successful()) {
+			return labelReject(player, payload, switch (resolved.status()) {
+				case CHUNK_UNLOADED -> ContainerLabelEditResult.CHUNK_UNLOADED;
+				case NOT_CONTAINER -> ContainerLabelEditResult.NOT_CONTAINER;
+				default -> ContainerLabelEditResult.BLOCK_CHANGED;
+			});
+		}
+		LogicalContainer container = resolved.container();
+		if (container.type() != session.openedBlockType() || !container.matchesInventory(handler.getInventory())) {
+			return labelReject(player, payload, ContainerLabelEditResult.BLOCK_CHANGED);
+		}
+
+		ContainerLabelSummary currentSummary = ContainerLabelService.summarize(container);
+		if (currentSummary.conflict() && payload.operation() != ContainerLabelOperation.CLEAR) {
+			return labelReject(player, payload, ContainerLabelEditResult.LABEL_CONFLICT);
+		}
+		ContainerLabelRule requestedRule;
+		if (payload.operation() == ContainerLabelOperation.CLEAR) {
+			requestedRule = ContainerLabelRule.NONE;
+		} else {
+			Item item = payload.itemId().flatMap(Registries.ITEM::getOrEmpty).orElse(null);
+			if (item == null || item == Items.AIR) {
+				return labelReject(player, payload, ContainerLabelEditResult.INVALID_ITEM);
+			}
+			requestedRule = ContainerLabelRule.exact(item);
+			ContainerLabelService.ContentValidation contents = ContainerLabelService.validateContents(container.inventory(), requestedRule);
+			if (!contents.compatible()) {
+				return labelReject(
+					player, payload, ContainerLabelEditResult.INCOMPATIBLE_CONTENTS,
+					contents.firstMismatchItemId(), contents.mismatchSlotCount()
+				);
+			}
+		}
+
+		long now = player.getServerWorld().getTime();
+		long previousEdit = lastLabelEditTicks.getOrDefault(player.getUuid(), now - LABEL_EDIT_COOLDOWN_TICKS);
+		if (now - previousEdit < LABEL_EDIT_COOLDOWN_TICKS) {
+			return labelReject(player, payload, ContainerLabelEditResult.COOLDOWN);
+		}
+		lastLabelEditTicks.put(player.getUuid(), now);
+		ContainerLabelRule currentRule = currentSummary.conflict()
+			? ContainerLabelRule.NONE
+			: container.holders().getFirst().workshopZone$getLabelRule();
+		try {
+			if (!ContainerLabelEditCallback.EVENT.invoker().canEdit(
+				player, player.getServerWorld(), container.representativePosition(), currentRule, requestedRule
+			)) {
+				return labelReject(player, payload, ContainerLabelEditResult.DENIED);
+			}
+		} catch (RuntimeException exception) {
+			WorkshopZone.LOGGER.error("Container label permission callback failed; denying edit", exception);
+			return labelReject(player, payload, ContainerLabelEditResult.DENIED);
+		}
+		if (!ContainerLabelService.applyAtomically(container, requestedRule)) {
+			return labelReject(player, payload, ContainerLabelEditResult.INTERNAL_ERROR);
+		}
+
+		WorkshopScanResult result = scanner.scan(
+			player.getServerWorld(), session.scanCenter(),
+			WorkshopAreaScanner.DEFAULT_HORIZONTAL_RADIUS, WorkshopAreaScanner.DEFAULT_VERTICAL_RADIUS
+		);
+		WorkshopSession updated = session.labelEdited(result);
+		sessions.put(updated);
+		WorkshopNetworking.sendSnapshot(player, updated);
+		ContainerLabelEditResult success = requestedRule.mode() == ContainerLabelMode.NONE
+			? ContainerLabelEditResult.CLEARED
+			: ContainerLabelEditResult.SUCCESS;
+		WorkshopNetworking.sendLabelResult(player, updated.sessionId(), updated.syncId(), success, Optional.empty(), 0);
+		return success;
+	}
+
+	private ContainerLabelEditResult labelReject(
+		ServerPlayerEntity player,
+		UpdateContainerLabelPayload payload,
+		ContainerLabelEditResult result
+	) {
+		return labelReject(player, payload, result, Optional.empty(), 0);
+	}
+
+	private ContainerLabelEditResult labelReject(
+		ServerPlayerEntity player,
+		UpdateContainerLabelPayload payload,
+		ContainerLabelEditResult result,
+		Optional<net.minecraft.util.Identifier> mismatchItemId,
+		int mismatchSlotCount
+	) {
+		WorkshopNetworking.sendLabelResult(
+			player, payload.sessionId(), payload.syncId(), result, mismatchItemId, mismatchSlotCount
+		);
+		return result;
 	}
 
 	public Optional<WorkshopSession> get(UUID playerId) {

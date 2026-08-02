@@ -4,8 +4,13 @@
   "package": "io.github.ikunkk02afk.workshopzone.mixin",
   "compatibilityLevel": "JAVA_21",
   "mixins": [
+    "BarrelBlockEntityMixin",
+    "ChestBlockEntityMixin",
+    "DoubleInventoryMixin",
+    "ScreenHandlerMixin",
     "ServerPlayerEntityMixin",
-    "ServerPlayerInteractionManagerMixin"
+    "ServerPlayerInteractionManagerMixin",
+    "SlotMixin"
   ],
   "client": [
     "client.HandledScreenAccessor"

@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
 import net.minecraft.item.ItemStack;
 import net.minecraft.text.Text;
@@ -15,6 +16,8 @@ public record ClientWorkshopEntry(
 	boolean workstation,
 	boolean customName,
 	Text displayName,
-	ItemStack icon
+	ItemStack icon,
+	ContainerLabelSummary labelSummary,
+	ItemStack labelIcon
 ) {
 }

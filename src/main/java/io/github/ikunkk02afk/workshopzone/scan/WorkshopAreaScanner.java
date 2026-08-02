@@ -1,5 +1,7 @@
 package io.github.ikunkk02afk.workshopzone.scan;
 
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelService;
+import io.github.ikunkk02afk.workshopzone.label.WorkshopContainerResolver;
 import net.minecraft.block.BlockState;
 import net.minecraft.block.ChestBlock;
 import net.minecraft.block.enums.ChestType;
@@ -45,7 +47,17 @@ public final class WorkshopAreaScanner {
 		int verticalRadius
 	) {
 		Objects.requireNonNull(world, "world");
-		return scan(new ServerWorldAccess(world), center, horizontalRadius, verticalRadius);
+		WorkshopScanResult basic = scan(new ServerWorldAccess(world), center, horizontalRadius, verticalRadius);
+		List<WorkshopBlockEntry> labeled = basic.entries().stream().map(entry -> {
+			if (!entry.type().isContainer()) {
+				return entry;
+			}
+			WorkshopContainerResolver.Result resolved = WorkshopContainerResolver.resolve(world, entry.position());
+			return resolved.successful()
+				? entry.withLabelSummary(ContainerLabelService.reconcile(resolved.container()))
+				: entry;
+		}).toList();
+		return WorkshopScanResult.create(basic.center(), horizontalRadius, verticalRadius, labeled);
 	}
 
 	WorkshopScanResult scan(

@@ -22,6 +22,7 @@ import java.util.Map;
 
 public final class ClientWorkshopState {
 	private static final Map<Identifier, ItemStack> ICON_CACHE = new HashMap<>();
+	private static final Map<Identifier, ItemStack> LABEL_ICON_CACHE = new HashMap<>();
 
 	private static ClientWorkshopSnapshot current;
 	private static long acceptedSessionId = -1;
@@ -84,7 +85,11 @@ public final class ClientWorkshopState {
 			entries.add(new ClientWorkshopEntry(
 				entry.type(), entry.position(), entry.blockId(), entry.distanceSquared(),
 				entry.container(), entry.workstation(), entry.customName().isPresent(), name,
-				ICON_CACHE.computeIfAbsent(entry.blockId(), id -> createIcon(block))
+				ICON_CACHE.computeIfAbsent(entry.blockId(), id -> createIcon(block)),
+				entry.labelSummary(),
+				entry.labelSummary().exactItemId()
+					.map(id -> LABEL_ICON_CACHE.computeIfAbsent(id, ClientWorkshopState::createItemIcon))
+					.orElse(ItemStack.EMPTY)
 			));
 		}
 
@@ -134,10 +139,17 @@ public final class ClientWorkshopState {
 		loaded = false;
 		cleared = false;
 		ICON_CACHE.clear();
+		LABEL_ICON_CACHE.clear();
+		ClientContainerLabelState.reset();
 	}
 
 	private static ItemStack createIcon(Block block) {
 		Item item = block.asItem();
 		return item == Items.AIR ? new ItemStack(Items.BARRIER) : new ItemStack(item);
+	}
+
+	private static ItemStack createItemIcon(Identifier id) {
+		Item item = Registries.ITEM.getOrEmpty(id).orElse(Items.BARRIER);
+		return new ItemStack(item);
 	}
 }

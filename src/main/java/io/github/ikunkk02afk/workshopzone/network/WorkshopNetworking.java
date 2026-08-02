@@ -14,6 +14,7 @@ import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
 import net.minecraft.text.Text;
 import net.minecraft.util.Nameable;
+import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.ChunkSectionPos;
 
@@ -32,8 +33,10 @@ public final class WorkshopNetworking {
 	public static void registerCommon() {
 		PayloadTypeRegistry.playS2C().register(WorkshopSnapshotPayload.ID, WorkshopSnapshotPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ClearWorkshopSessionPayload.ID, ClearWorkshopSessionPayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(ContainerLabelEditResultPayload.ID, ContainerLabelEditResultPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopRefreshPayload.ID, RequestWorkshopRefreshPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(OpenWorkshopTargetPayload.ID, OpenWorkshopTargetPayload.CODEC);
+		PayloadTypeRegistry.playC2S().register(UpdateContainerLabelPayload.ID, UpdateContainerLabelPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestWorkshopRefreshPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().refresh(
@@ -45,6 +48,10 @@ public final class WorkshopNetworking {
 			(payload, context) -> WorkshopSessionManager.getInstance().openTarget(
 				context.player(), payload.sessionId(), payload.revision(), payload.syncId(), payload.targetPos()
 			)
+		);
+		ServerPlayNetworking.registerGlobalReceiver(
+			UpdateContainerLabelPayload.ID,
+			(payload, context) -> WorkshopSessionManager.getInstance().updateContainerLabel(context.player(), payload)
 		);
 	}
 
@@ -59,7 +66,8 @@ public final class WorkshopNetworking {
 				entry.distanceSquared(),
 				entry.container(),
 				entry.processingDevice(),
-				findCustomName(player.getServerWorld(), entry)
+				findCustomName(player.getServerWorld(), entry),
+				entry.labelSummary()
 			));
 		}
 
@@ -90,6 +98,19 @@ public final class WorkshopNetworking {
 
 	public static void sendClear(ServerPlayerEntity player, WorkshopSession session) {
 		ServerPlayNetworking.send(player, new ClearWorkshopSessionPayload(session.sessionId(), session.syncId()));
+	}
+
+	public static void sendLabelResult(
+		ServerPlayerEntity player,
+		long sessionId,
+		int syncId,
+		ContainerLabelEditResult result,
+		Optional<Identifier> mismatchItemId,
+		int mismatchSlotCount
+	) {
+		ServerPlayNetworking.send(player, new ContainerLabelEditResultPayload(
+			sessionId, syncId, result, mismatchItemId, mismatchSlotCount
+		));
 	}
 
 	private static Optional<String> findCustomName(ServerWorld world, WorkshopBlockEntry entry) {
