@@ -17,6 +17,16 @@ public final class WorkshopBlockCatalog {
 		.register(Blocks.FURNACE, WorkshopBlockType.FURNACE)
 		.register(Blocks.BLAST_FURNACE, WorkshopBlockType.BLAST_FURNACE)
 		.register(Blocks.SMOKER, WorkshopBlockType.SMOKER)
+		.register(Blocks.SMITHING_TABLE, WorkshopBlockType.SMITHING_TABLE)
+		.register(Blocks.ANVIL, WorkshopBlockType.ANVIL)
+		.register(Blocks.CHIPPED_ANVIL, WorkshopBlockType.ANVIL)
+		.register(Blocks.DAMAGED_ANVIL, WorkshopBlockType.ANVIL)
+		.register(Blocks.STONECUTTER, WorkshopBlockType.STONECUTTER)
+		.register(Blocks.GRINDSTONE, WorkshopBlockType.GRINDSTONE)
+		.register(Blocks.LOOM, WorkshopBlockType.LOOM)
+		.register(Blocks.CARTOGRAPHY_TABLE, WorkshopBlockType.CARTOGRAPHY_TABLE)
+		.register(Blocks.BREWING_STAND, WorkshopBlockType.BREWING_STAND)
+		.register(Blocks.ENCHANTING_TABLE, WorkshopBlockType.ENCHANTING_TABLE)
 		.build();
 
 	private final Map<Block, WorkshopBlockType> types;

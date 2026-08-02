@@ -56,7 +56,7 @@ public record WorkshopSnapshotPayload(
 		buf.writeVarInt(payload.syncId);
 		buf.writeIdentifier(payload.dimensionId);
 		buf.writeBlockPos(payload.center);
-		buf.writeVarInt(payload.openedBlockType.ordinal());
+		buf.writeIdentifier(payload.openedBlockType.networkId());
 		buf.writeVarInt(payload.totalEntryCount);
 		buf.writeVarInt(payload.containerCount);
 		buf.writeVarInt(payload.workstationCount);
@@ -71,11 +71,9 @@ public record WorkshopSnapshotPayload(
 		int syncId = buf.readVarInt();
 		Identifier dimensionId = buf.readIdentifier();
 		BlockPos center = buf.readBlockPos();
-		int ordinal = buf.readVarInt();
-		WorkshopBlockType[] values = WorkshopBlockType.values();
-		if (ordinal < 0 || ordinal >= values.length) {
-			throw new DecoderException("Unknown opened workshop block type: " + ordinal);
-		}
+		Identifier openedTypeId = buf.readIdentifier();
+		WorkshopBlockType openedBlockType = WorkshopBlockType.fromNetworkId(openedTypeId)
+			.orElseThrow(() -> new DecoderException("Unknown opened workshop block type: " + openedTypeId));
 		int totalEntryCount = buf.readVarInt();
 		int containerCount = buf.readVarInt();
 		int workstationCount = buf.readVarInt();
@@ -90,7 +88,7 @@ public record WorkshopSnapshotPayload(
 		}
 		try {
 			return new WorkshopSnapshotPayload(
-				sessionId, revision, syncId, dimensionId, center, values[ordinal], totalEntryCount,
+				sessionId, revision, syncId, dimensionId, center, openedBlockType, totalEntryCount,
 				containerCount, workstationCount, truncated, entries
 			);
 		} catch (IllegalArgumentException exception) {

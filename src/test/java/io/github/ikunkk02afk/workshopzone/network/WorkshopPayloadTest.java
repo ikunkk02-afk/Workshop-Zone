@@ -64,6 +64,31 @@ class WorkshopPayloadTest {
 		assertFalse(WorkshopSnapshotOrder.isNewer(3, 99, 4, 1));
 	}
 
+	@Test
+	void entryEncodingUsesStableIdentifierAndUnknownIdsFailSafely() {
+		WorkshopNetworkEntry original = entry(WorkshopBlockType.SMITHING_TABLE, 1);
+		RegistryByteBuf encoded = new RegistryByteBuf(Unpooled.buffer(), DynamicRegistryManager.EMPTY);
+		WorkshopNetworkEntry.write(encoded, original);
+		assertEquals(WorkshopBlockType.SMITHING_TABLE.networkId(), encoded.readIdentifier());
+
+		RegistryByteBuf unknown = new RegistryByteBuf(Unpooled.buffer(), DynamicRegistryManager.EMPTY);
+		unknown.writeIdentifier(Identifier.of("workshop_zone", "not_a_real_type"));
+		assertThrows(io.netty.handler.codec.DecoderException.class, () -> WorkshopNetworkEntry.read(unknown));
+	}
+
+	@Test
+	void unknownOpenedTypeFailsSnapshotDecodingSafely() {
+		RegistryByteBuf unknown = new RegistryByteBuf(Unpooled.buffer(), DynamicRegistryManager.EMPTY);
+		unknown.writeVarLong(1);
+		unknown.writeVarLong(0);
+		unknown.writeVarInt(2);
+		unknown.writeIdentifier(Identifier.ofVanilla("overworld"));
+		unknown.writeBlockPos(BlockPos.ORIGIN);
+		unknown.writeIdentifier(Identifier.of("workshop_zone", "not_a_real_type"));
+
+		assertThrows(io.netty.handler.codec.DecoderException.class, () -> WorkshopSnapshotPayload.CODEC.decode(unknown));
+	}
+
 	private static WorkshopNetworkEntry entry(WorkshopBlockType type, int distance) {
 		return new WorkshopNetworkEntry(
 			type, new BlockPos(distance, 0, 0), Identifier.ofVanilla(type.name().toLowerCase()), distance,

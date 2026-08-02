@@ -28,13 +28,15 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private static final int BUTTON_SIZE = 16;
 
 	private final HandledScreen<?> screen;
+	private final boolean showWhileLoading;
 	private int scrollOffset;
 	private boolean forcedCollapsed;
 	private long nextLocalRefreshAt;
 
-	public WorkshopSidebarWidget(HandledScreen<?> screen) {
+	public WorkshopSidebarWidget(HandledScreen<?> screen, boolean showWhileLoading) {
 		super(0, 0, PANEL_WIDTH, 120, Text.translatable("gui.workshop_zone.sidebar.title"));
 		this.screen = screen;
+		this.showWhileLoading = showWhileLoading;
 	}
 
 	@Override
@@ -44,8 +46,11 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		WorkshopSidebarPresentation presentation = WorkshopSidebarPresentation.resolve(
 			current != null, snapshot != null, ClientWorkshopState.wasClearedByServer()
 		);
-		visible = presentation.frameworkVisible();
+		visible = presentation.frameworkVisible() && (snapshot != null || showWhileLoading);
 		active = presentation.interactive();
+		if (!visible) {
+			return;
+		}
 		if (!updateBounds()) {
 			active = false;
 			return;

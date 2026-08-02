@@ -7,6 +7,7 @@ import net.minecraft.block.ChestBlock;
 import net.minecraft.block.enums.ChestType;
 import net.minecraft.test.GameTest;
 import net.minecraft.test.TestContext;
+import net.minecraft.registry.Registries;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Direction;
 
@@ -91,11 +92,59 @@ public final class WorkshopAreaScannerGameTests implements FabricGameTest {
 	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void recognizesAdditionalVanillaWorkstations(TestContext context) {
+		context.setBlockState(CENTER.add(1, 0, 0), Blocks.SMITHING_TABLE);
+		context.setBlockState(CENTER.add(2, 0, 0), Blocks.STONECUTTER);
+		context.setBlockState(CENTER.add(3, 0, 0), Blocks.GRINDSTONE);
+		context.setBlockState(CENTER.add(4, 0, 0), Blocks.LOOM);
+		context.setBlockState(CENTER.add(1, 1, 0), Blocks.CARTOGRAPHY_TABLE);
+		context.setBlockState(CENTER.add(2, 1, 0), Blocks.BREWING_STAND);
+		context.setBlockState(CENTER.add(3, 1, 0), Blocks.ENCHANTING_TABLE);
+
+		WorkshopScanResult result = scan(context, 5, 2);
+		context.assertEquals(7, result.size(), "All additional workstation families should be found");
+		context.assertEquals(7, result.processingDeviceCount(), "Every additional workstation should be categorized as a workstation");
+		assertTypes(
+			context, result,
+			WorkshopBlockType.SMITHING_TABLE,
+			WorkshopBlockType.STONECUTTER,
+			WorkshopBlockType.GRINDSTONE,
+			WorkshopBlockType.LOOM,
+			WorkshopBlockType.CARTOGRAPHY_TABLE,
+			WorkshopBlockType.BREWING_STAND,
+			WorkshopBlockType.ENCHANTING_TABLE
+		);
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void allAnvilStatesShareTypeButKeepActualBlockIds(TestContext context) {
+		BlockPos anvil = CENTER.add(1, 0, 0);
+		BlockPos chipped = CENTER.add(2, 0, 0);
+		BlockPos damaged = CENTER.add(3, 0, 0);
+		context.setBlockState(anvil, Blocks.ANVIL);
+		context.setBlockState(chipped, Blocks.CHIPPED_ANVIL);
+		context.setBlockState(damaged, Blocks.DAMAGED_ANVIL);
+
+		WorkshopScanResult result = scan(context, 4, 1);
+		context.assertEquals(3, result.size(), "All three anvil blocks should be found");
+		for (WorkshopBlockEntry entry : result.entries()) {
+			context.assertEquals(WorkshopBlockType.ANVIL, entry.type(), "All anvil variants should share ANVIL type");
+		}
+		List<net.minecraft.util.Identifier> ids = result.entries().stream().map(WorkshopBlockEntry::blockId).toList();
+		context.assertTrue(ids.contains(Registries.BLOCK.getId(Blocks.ANVIL)), "Anvil id should be preserved");
+		context.assertTrue(ids.contains(Registries.BLOCK.getId(Blocks.CHIPPED_ANVIL)), "Chipped anvil id should be preserved");
+		context.assertTrue(ids.contains(Registries.BLOCK.getId(Blocks.DAMAGED_ANVIL)), "Damaged anvil id should be preserved");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
 	public void excludesUnsupportedContainersAndMachines(TestContext context) {
 		context.setBlockState(CENTER.add(1, 0, 0), Blocks.HOPPER);
 		context.setBlockState(CENTER.add(2, 0, 0), Blocks.WHITE_SHULKER_BOX);
 		context.setBlockState(CENTER.add(3, 0, 0), Blocks.DISPENSER);
 		context.setBlockState(CENTER.add(-1, 0, 0), Blocks.DROPPER);
+		context.setBlockState(CENTER.add(-2, 0, 0), Blocks.FLETCHING_TABLE);
 
 		WorkshopScanResult result = scan(context, 4, 1);
 		context.assertEquals(0, result.size(), "Unsupported containers and machines must be excluded");

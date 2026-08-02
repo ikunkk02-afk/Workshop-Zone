@@ -12,11 +12,19 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.screen.BlastFurnaceScreenHandler;
+import net.minecraft.screen.BrewingStandScreenHandler;
+import net.minecraft.screen.CartographyTableScreenHandler;
 import net.minecraft.screen.CraftingScreenHandler;
+import net.minecraft.screen.EnchantmentScreenHandler;
 import net.minecraft.screen.FurnaceScreenHandler;
 import net.minecraft.screen.GenericContainerScreenHandler;
+import net.minecraft.screen.GrindstoneScreenHandler;
+import net.minecraft.screen.LoomScreenHandler;
 import net.minecraft.screen.ScreenHandler;
+import net.minecraft.screen.SmithingScreenHandler;
 import net.minecraft.screen.SmokerScreenHandler;
+import net.minecraft.screen.StonecutterScreenHandler;
+import net.minecraft.screen.AnvilScreenHandler;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
@@ -183,6 +191,14 @@ public final class WorkshopSessionManager {
 			case FURNACE -> handler instanceof FurnaceScreenHandler;
 			case BLAST_FURNACE -> handler instanceof BlastFurnaceScreenHandler;
 			case SMOKER -> handler instanceof SmokerScreenHandler;
+			case SMITHING_TABLE -> handler instanceof SmithingScreenHandler;
+			case ANVIL -> handler instanceof AnvilScreenHandler;
+			case STONECUTTER -> handler instanceof StonecutterScreenHandler;
+			case GRINDSTONE -> handler instanceof GrindstoneScreenHandler;
+			case LOOM -> handler instanceof LoomScreenHandler;
+			case CARTOGRAPHY_TABLE -> handler instanceof CartographyTableScreenHandler;
+			case BREWING_STAND -> handler instanceof BrewingStandScreenHandler;
+			case ENCHANTING_TABLE -> handler instanceof EnchantmentScreenHandler;
 		};
 	}
 }

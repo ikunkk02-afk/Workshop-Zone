@@ -5,11 +5,19 @@ import net.fabricmc.fabric.api.client.screen.v1.ScreenEvents;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.BlastFurnaceScreen;
+import net.minecraft.client.gui.screen.ingame.BrewingStandScreen;
+import net.minecraft.client.gui.screen.ingame.CartographyTableScreen;
 import net.minecraft.client.gui.screen.ingame.CraftingScreen;
+import net.minecraft.client.gui.screen.ingame.EnchantmentScreen;
 import net.minecraft.client.gui.screen.ingame.FurnaceScreen;
 import net.minecraft.client.gui.screen.ingame.GenericContainerScreen;
+import net.minecraft.client.gui.screen.ingame.GrindstoneScreen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
+import net.minecraft.client.gui.screen.ingame.LoomScreen;
+import net.minecraft.client.gui.screen.ingame.SmithingScreen;
 import net.minecraft.client.gui.screen.ingame.SmokerScreen;
+import net.minecraft.client.gui.screen.ingame.StonecutterScreen;
+import net.minecraft.client.gui.screen.ingame.AnvilScreen;
 
 public final class WorkshopScreenIntegration {
 	private static boolean expanded = true;
@@ -25,7 +33,7 @@ public final class WorkshopScreenIntegration {
 			WorkshopWidgetRegistry.replaceSingle(
 				Screens.getButtons(screen),
 				WorkshopSidebarWidget.class::isInstance,
-				() -> new WorkshopSidebarWidget(handledScreen)
+				() -> new WorkshopSidebarWidget(handledScreen, !(screen instanceof GenericContainerScreen))
 			);
 			WorkshopZone.LOGGER.debug(
 				"Added workshop sidebar to screen {} with syncId {}",
@@ -50,6 +58,14 @@ public final class WorkshopScreenIntegration {
 			|| screen instanceof CraftingScreen
 			|| screen instanceof FurnaceScreen
 			|| screen instanceof BlastFurnaceScreen
-			|| screen instanceof SmokerScreen;
+			|| screen instanceof SmokerScreen
+			|| screen instanceof SmithingScreen
+			|| screen instanceof AnvilScreen
+			|| screen instanceof StonecutterScreen
+			|| screen instanceof GrindstoneScreen
+			|| screen instanceof LoomScreen
+			|| screen instanceof CartographyTableScreen
+			|| screen instanceof BrewingStandScreen
+			|| screen instanceof EnchantmentScreen;
 	}
 }

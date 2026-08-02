@@ -37,7 +37,7 @@ public record WorkshopNetworkEntry(
 	}
 
 	static void write(RegistryByteBuf buf, WorkshopNetworkEntry entry) {
-		buf.writeVarInt(entry.type.ordinal());
+		buf.writeIdentifier(entry.type.networkId());
 		buf.writeBlockPos(entry.position);
 		buf.writeIdentifier(entry.blockId);
 		buf.writeDouble(entry.distanceSquared);
@@ -48,12 +48,9 @@ public record WorkshopNetworkEntry(
 	}
 
 	static WorkshopNetworkEntry read(RegistryByteBuf buf) {
-		int ordinal = buf.readVarInt();
-		WorkshopBlockType[] values = WorkshopBlockType.values();
-		if (ordinal < 0 || ordinal >= values.length) {
-			throw new DecoderException("Unknown workshop block type: " + ordinal);
-		}
-		WorkshopBlockType type = values[ordinal];
+		Identifier networkId = buf.readIdentifier();
+		WorkshopBlockType type = WorkshopBlockType.fromNetworkId(networkId)
+			.orElseThrow(() -> new DecoderException("Unknown workshop block type: " + networkId));
 		BlockPos position = buf.readBlockPos();
 		Identifier blockId = buf.readIdentifier();
 		double distanceSquared = buf.readDouble();
