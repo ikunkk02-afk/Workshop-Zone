@@ -1,6 +1,8 @@
 package io.github.ikunkk02afk.workshopzone;
 
 import io.github.ikunkk02afk.workshopzone.command.WorkshopZoneCommands;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworking;
+import io.github.ikunkk02afk.workshopzone.session.WorkshopSessionManager;
 import net.fabricmc.api.ModInitializer;
 
 import net.minecraft.util.Identifier;
@@ -18,6 +20,8 @@ public class WorkshopZone implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		WorkshopNetworking.registerCommon();
+		WorkshopSessionManager.getInstance().registerEvents();
 		WorkshopZoneCommands.register();
 		LOGGER.info("Initializing Workshop Zone");
 	}

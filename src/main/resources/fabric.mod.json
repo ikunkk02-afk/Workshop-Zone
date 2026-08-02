@@ -15,6 +15,9 @@
 	"license": "MIT",
 	"icon": "assets/workshop_zone/icon.png",
 	"environment": "*",
+	"mixins": [
+		"workshop_zone.mixins.json"
+	],
 	"entrypoints": {
 		"main": [
 			"io.github.ikunkk02afk.workshopzone.WorkshopZone"
