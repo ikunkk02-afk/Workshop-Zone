@@ -144,6 +144,7 @@ public final class ClientWorkshopState {
 		LABEL_ICON_CACHE.clear();
 		ClientContainerLabelState.reset();
 		ClientItemTagState.reset();
+		ClientDepositState.reset();
 	}
 
 	private static ItemStack createIcon(Block block) {

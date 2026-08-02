@@ -28,6 +28,10 @@ public class WorkshopZoneClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(ItemTagCandidatesPayload.ID, (payload, context) ->
 			context.client().execute(() -> ClientItemTagState.accept(payload))
 		);
+		ClientPlayNetworking.registerGlobalReceiver(
+			io.github.ikunkk02afk.workshopzone.network.WorkshopDepositResultPayload.ID,
+			(payload, context) -> context.client().execute(() -> ClientDepositState.accept(payload))
+		);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> ClientWorkshopState.resetConnection());
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientWorkshopState.resetConnection());
 		WorkshopScreenIntegration.register();

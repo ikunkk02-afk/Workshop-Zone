@@ -80,6 +80,12 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private long observedTagResponseSequence;
 	private Text labelResult;
 	private long observedLabelResultSequence;
+	private boolean depositPending;
+	private long pendingDepositRequestId;
+	private long pendingDepositSessionId;
+	private int pendingDepositSyncId;
+	private long pendingDepositExpiresAt;
+	private long observedDepositSequence;
 
 	public WorkshopSidebarWidget(HandledScreen<?> screen, boolean showWhileLoading) {
 		super(0, 0, PANEL_WIDTH, 120, Text.translatable("gui.workshop_zone.sidebar.title"));
@@ -142,12 +148,16 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		int collapseX = getRight() - BUTTON_SIZE - 3;
 		int refreshX = collapseX - BUTTON_SIZE - 2;
 		int labelX = refreshX - BUTTON_SIZE - 2;
+		boolean hasLabelButton = supportsLabelEditor(snapshot);
+		int depositX = (hasLabelButton ? labelX : refreshX) - BUTTON_SIZE - 2;
 		drawSmallButton(context, collapseX, getY() + 4, "<", mouseX, mouseY);
 		drawSmallButton(context, refreshX, getY() + 4, "R", mouseX, mouseY);
-		if (supportsLabelEditor(snapshot)) {
+		if (hasLabelButton) {
 			drawSmallButton(context, labelX, getY() + 4, "L", mouseX, mouseY);
 		}
+		drawSmallButton(context, depositX, getY() + 4, depositPending ? "..." : "⇩", mouseX, mouseY);
 		updateLabelResult(snapshot);
+		updateDepositResult(snapshot);
 		if (labelEditor && supportsLabelEditor(snapshot)) {
 			renderLabelEditor(context, snapshot, mouseX, mouseY);
 			return;
@@ -246,7 +256,12 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				? Text.translatable("gui.workshop_zone.sidebar.refresh_cooldown")
 				: Text.translatable("gui.workshop_zone.sidebar.refresh");
 			context.drawTooltip(textRenderer, tooltip, mouseX, mouseY);
-		} else if (supportsLabelEditor(snapshot) && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+		} else if (inside(mouseX, mouseY, depositX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+			Text depositTooltip = depositPending
+				? Text.translatable("gui.workshop_zone.deposit.pending")
+				: Text.translatable("gui.workshop_zone.deposit.button");
+			context.drawTooltip(textRenderer, depositTooltip, mouseX, mouseY);
+		} else if (hasLabelButton && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			context.drawTooltip(textRenderer, Text.translatable("gui.workshop_zone.label.button"), mouseX, mouseY);
 		}
 		narratedEntry = hovered;
@@ -267,6 +282,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		int collapseX = getRight() - BUTTON_SIZE - 3;
 		int refreshX = collapseX - BUTTON_SIZE - 2;
 		int labelX = refreshX - BUTTON_SIZE - 2;
+		boolean hasLabel = supportsLabelEditor(snapshot);
+		int depositX = (hasLabel ? labelX : refreshX) - BUTTON_SIZE - 2;
 		if (inside(mouseX, mouseY, collapseX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			WorkshopScreenIntegration.setExpanded(false);
 			return;
@@ -278,7 +295,14 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			ClientPlayNetworking.send(new RequestWorkshopRefreshPayload(snapshot.sessionId(), snapshot.syncId()));
 			return;
 		}
-		if (supportsLabelEditor(snapshot) && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+		if (inside(mouseX, mouseY, depositX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+			if (!labelEditor && !depositPending && ClientPlayNetworking.canSend(
+				io.github.ikunkk02afk.workshopzone.network.DepositWorkshopItemsPayload.ID)) {
+				sendDepositRequest(snapshot);
+			}
+			return;
+		}
+		if (hasLabel && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			labelEditor = true;
 			ClientWorkshopEntry opened = openedEntry(snapshot);
 			labelEditorMode = opened != null && opened.labelSummary().mode() == ContainerLabelMode.ITEM_TAG
@@ -853,6 +877,54 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		if (result != null && result.sessionId() == snapshot.sessionId() && result.syncId() == snapshot.syncId()) {
 			labelPending = false;
 			labelResult = Text.translatable(result.result().translationKey());
+		}
+	}
+
+	private void sendDepositRequest(ClientWorkshopSnapshot snapshot) {
+		boolean shift = net.minecraft.client.util.InputUtil.isKeyPressed(
+			MinecraftClient.getInstance().getWindow().getHandle(),
+			net.minecraft.client.util.InputUtil.GLFW_KEY_LEFT_SHIFT
+		) || net.minecraft.client.util.InputUtil.isKeyPressed(
+			MinecraftClient.getInstance().getWindow().getHandle(),
+			net.minecraft.client.util.InputUtil.GLFW_KEY_RIGHT_SHIFT
+		);
+		pendingDepositRequestId = System.nanoTime();
+		pendingDepositSessionId = snapshot.sessionId();
+		pendingDepositSyncId = snapshot.syncId();
+		pendingDepositExpiresAt = net.minecraft.util.Util.getMeasuringTimeMs() + PENDING_TIMEOUT_MILLIS;
+		depositPending = true;
+		observedDepositSequence = ClientDepositState.resultSequence();
+		ClientPlayNetworking.send(
+			new io.github.ikunkk02afk.workshopzone.network.DepositWorkshopItemsPayload(
+				pendingDepositRequestId, snapshot.sessionId(), snapshot.revision(), snapshot.syncId(), shift
+			)
+		);
+		WorkshopZone.LOGGER.debug(
+			"Sending workshop deposit request requestId {} session {} includeHotbar {}",
+			pendingDepositRequestId, snapshot.sessionId(), shift
+		);
+	}
+
+	private void updateDepositResult(ClientWorkshopSnapshot snapshot) {
+		if (!depositPending) {
+			return;
+		}
+		if (snapshot == null
+			|| snapshot.sessionId() != pendingDepositSessionId
+			|| snapshot.syncId() != pendingDepositSyncId
+			|| screen.getScreenHandler().syncId != pendingDepositSyncId
+			|| net.minecraft.util.Util.getMeasuringTimeMs() >= pendingDepositExpiresAt) {
+			depositPending = false;
+			return;
+		}
+		long sequence = ClientDepositState.resultSequence();
+		if (sequence == observedDepositSequence) {
+			return;
+		}
+		observedDepositSequence = sequence;
+		io.github.ikunkk02afk.workshopzone.network.WorkshopDepositResultPayload result = ClientDepositState.lastResult();
+		if (WorkshopDepositResultFilter.matches(result, pendingDepositRequestId, snapshot.sessionId(), snapshot.syncId())) {
+			depositPending = false;
 		}
 	}
 

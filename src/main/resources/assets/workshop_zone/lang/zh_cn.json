@@ -116,5 +116,19 @@
   "category.workshop_zone.ingots": "常见金属锭",
   "category.workshop_zone.gems": "常见宝石",
   "category.workshop_zone.foods": "常见食物",
-  "category.workshop_zone.seeds": "常见种子"
+  "category.workshop_zone.seeds": "常见种子",
+  "gui.workshop_zone.deposit.button": "将背包中匹配标签的物品存入附近容器",
+  "gui.workshop_zone.deposit.tooltip_hotbar": "按住 Shift 点击：包含快捷栏",
+  "gui.workshop_zone.deposit.pending": "正在归仓……",
+  "gui.workshop_zone.deposit.no_destinations": "当前工坊没有可用的标签容器",
+  "message.workshop_zone.deposit.success": "已归仓 %s 个物品，使用 %s 个容器",
+  "message.workshop_zone.deposit.partial": "已归仓 %s 个物品，部分物品因空间不足仍在背包中",
+  "message.workshop_zone.deposit.nothing_to_move": "背包中没有匹配容器标签的物品",
+  "message.workshop_zone.deposit.no_labeled_containers": "当前工坊没有可用的标签容器",
+  "message.workshop_zone.deposit.no_space": "匹配的标签容器已经装满",
+  "message.workshop_zone.deposit.invalid_session": "工坊会话无效，请重新打开容器",
+  "message.workshop_zone.deposit.stale_snapshot": "工坊数据已过期，请刷新后重试",
+  "message.workshop_zone.deposit.cooldown": "操作过快，请稍后重试",
+  "message.workshop_zone.deposit.denied": "无权向目标容器归仓",
+  "message.workshop_zone.deposit.internal_error": "归仓时发生内部错误"
 }

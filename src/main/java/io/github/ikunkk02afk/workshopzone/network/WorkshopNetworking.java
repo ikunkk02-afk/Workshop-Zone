@@ -35,10 +35,12 @@ public final class WorkshopNetworking {
 		PayloadTypeRegistry.playS2C().register(ClearWorkshopSessionPayload.ID, ClearWorkshopSessionPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ContainerLabelEditResultPayload.ID, ContainerLabelEditResultPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ItemTagCandidatesPayload.ID, ItemTagCandidatesPayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(WorkshopDepositResultPayload.ID, WorkshopDepositResultPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopRefreshPayload.ID, RequestWorkshopRefreshPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(OpenWorkshopTargetPayload.ID, OpenWorkshopTargetPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(UpdateContainerLabelPayload.ID, UpdateContainerLabelPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestItemTagCandidatesPayload.ID, RequestItemTagCandidatesPayload.CODEC);
+		PayloadTypeRegistry.playC2S().register(DepositWorkshopItemsPayload.ID, DepositWorkshopItemsPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestWorkshopRefreshPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().refresh(
@@ -58,6 +60,10 @@ public final class WorkshopNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestItemTagCandidatesPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().requestItemTagCandidates(context.player(), payload)
+		);
+		ServerPlayNetworking.registerGlobalReceiver(
+			DepositWorkshopItemsPayload.ID,
+			(payload, context) -> WorkshopSessionManager.getInstance().deposit(context.player(), payload)
 		);
 	}
 
@@ -120,6 +126,10 @@ public final class WorkshopNetworking {
 	}
 
 	public static void sendItemTagCandidates(ServerPlayerEntity player, ItemTagCandidatesPayload payload) {
+		ServerPlayNetworking.send(player, payload);
+	}
+
+	public static void sendDepositResult(ServerPlayerEntity player, WorkshopDepositResultPayload payload) {
 		ServerPlayNetworking.send(player, payload);
 	}
 

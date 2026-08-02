@@ -3,6 +3,7 @@ package io.github.ikunkk02afk.workshopzone.session;
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.api.WorkshopRemoteOpenCallback;
 import io.github.ikunkk02afk.workshopzone.api.ContainerLabelEditCallback;
+import io.github.ikunkk02afk.workshopzone.deposit.WorkshopDepositService;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelMode;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelFeedback;
 import io.github.ikunkk02afk.workshopzone.label.ContainerItemTags;
@@ -13,6 +14,7 @@ import io.github.ikunkk02afk.workshopzone.label.LogicalContainer;
 import io.github.ikunkk02afk.workshopzone.label.WorkshopContainerResolver;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelOperation;
+import io.github.ikunkk02afk.workshopzone.network.DepositWorkshopItemsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestItemTagCandidatesPayload;
 import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
@@ -77,6 +79,7 @@ public final class WorkshopSessionManager {
 	private final WorkshopSessionStore sessions = new WorkshopSessionStore();
 	private final AtomicLong nextSessionId = new AtomicLong();
 	private final WorkshopAreaScanner scanner = new WorkshopAreaScanner();
+	private final WorkshopDepositService depositService = new WorkshopDepositService(this);
 	private final Map<UUID, Long> lastOpenRequestTicks = new HashMap<>();
 	private final Map<UUID, Long> lastLabelEditTicks = new HashMap<>();
 	private final Map<UUID, Long> lastTagQueryTicks = new HashMap<>();
@@ -107,6 +110,7 @@ public final class WorkshopSessionManager {
 			lastOpenRequestTicks.remove(handler.player.getUuid());
 			lastLabelEditTicks.remove(handler.player.getUuid());
 			lastTagQueryTicks.remove(handler.player.getUuid());
+			depositService.clear(handler.player);
 			ContainerLabelFeedback.clear(handler.player.getUuid());
 		});
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) -> {
@@ -373,6 +377,15 @@ public final class WorkshopSessionManager {
 		WorkshopSession refreshed = session.refreshed(now, result);
 		sessions.put(refreshed);
 		WorkshopNetworking.sendSnapshot(player, refreshed);
+	}
+
+	public void deposit(ServerPlayerEntity player, DepositWorkshopItemsPayload request) {
+		io.github.ikunkk02afk.workshopzone.network.WorkshopDepositResultPayload result = depositService.deposit(player, request);
+		WorkshopNetworking.sendDepositResult(player, result);
+		player.sendMessage(
+			net.minecraft.text.Text.translatable(result.result().translationKey(), result.movedItemCount(), result.usedDestinationCount()),
+			true
+		);
 	}
 
 	public WorkshopOpenResult openTarget(

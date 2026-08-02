@@ -116,5 +116,19 @@
   "category.workshop_zone.ingots": "Common metal ingots",
   "category.workshop_zone.gems": "Common gems",
   "category.workshop_zone.foods": "Common foods",
-  "category.workshop_zone.seeds": "Common seeds"
+  "category.workshop_zone.seeds": "Common seeds",
+  "gui.workshop_zone.deposit.button": "Deposit matching items into nearby containers",
+  "gui.workshop_zone.deposit.tooltip_hotbar": "Hold Shift: include hotbar",
+  "gui.workshop_zone.deposit.pending": "Depositing...",
+  "gui.workshop_zone.deposit.no_destinations": "No labeled containers in this workshop",
+  "message.workshop_zone.deposit.success": "Deposited %s items into %s container(s)",
+  "message.workshop_zone.deposit.partial": "Deposited %s items, some remain in inventory",
+  "message.workshop_zone.deposit.nothing_to_move": "No items matching container labels in inventory",
+  "message.workshop_zone.deposit.no_labeled_containers": "No labeled containers in this workshop",
+  "message.workshop_zone.deposit.no_space": "Matching containers are full",
+  "message.workshop_zone.deposit.invalid_session": "Workshop session invalid, reopen a container",
+  "message.workshop_zone.deposit.stale_snapshot": "Workshop data is stale, please refresh",
+  "message.workshop_zone.deposit.cooldown": "Please wait before depositing again",
+  "message.workshop_zone.deposit.denied": "Deposit denied to target container",
+  "message.workshop_zone.deposit.internal_error": "Internal error during deposit"
 }
