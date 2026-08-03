@@ -121,6 +121,7 @@ public final class ClientWorkshopState {
 			current = null;
 			loaded = false;
 			cleared = true;
+			ClientWorkshopSearchState.resetConnection();
 		}
 	}
 
@@ -143,6 +144,8 @@ public final class ClientWorkshopState {
 		ClientContainerLabelDetailsState.reset();
 		ClientItemTagState.reset();
 		ClientDepositState.reset();
+		ClientWorkshopSearchState.resetConnection();
+		WorkshopScreenController.highlights().clear();
 	}
 
 	private static ItemStack createIcon(Block block) {

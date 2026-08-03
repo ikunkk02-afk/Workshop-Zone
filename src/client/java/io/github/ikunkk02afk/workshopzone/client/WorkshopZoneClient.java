@@ -4,10 +4,16 @@ import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.fabricmc.fabric.api.resource.ResourceManagerHelper;
+import net.fabricmc.fabric.api.resource.SimpleSynchronousResourceReloadListener;
+import net.minecraft.resource.ResourceManager;
+import net.minecraft.resource.ResourceType;
+import net.minecraft.util.Identifier;
 import io.github.ikunkk02afk.workshopzone.network.ClearWorkshopSessionPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotPayload;
 
 public class WorkshopZoneClient implements ClientModInitializer {
@@ -15,6 +21,21 @@ public class WorkshopZoneClient implements ClientModInitializer {
 	public void onInitializeClient() {
 		RecipeViewerDetector.initialize();
 		WorkshopClientConfigManager.initialize();
+		ResourceManagerHelper.get(ResourceType.CLIENT_RESOURCES).registerReloadListener(new SimpleSynchronousResourceReloadListener() {
+			@Override
+			public Identifier getFabricId() {
+				return WorkshopZone.id("item_candidate_names");
+			}
+
+			@Override
+			public void reload(ResourceManager manager) {
+				WorkshopItemCandidateSearch.invalidateRegistryCache();
+				net.minecraft.client.MinecraftClient.getInstance().execute(
+					ClientWorkshopSearchState::refreshLocalizedCandidates
+				);
+			}
+		});
+		WorkshopHighlightRenderer.register();
 		ClientPlayNetworking.registerGlobalReceiver(WorkshopSnapshotPayload.ID, (payload, context) -> {
 			WorkshopZone.LOGGER.debug(
 				"Received workshop snapshot session {} revision {} syncId {} with {} entries",
@@ -37,6 +58,10 @@ public class WorkshopZoneClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(
 			io.github.ikunkk02afk.workshopzone.network.WorkshopDepositResultPayload.ID,
 			(payload, context) -> context.client().execute(() -> ClientDepositState.accept(payload))
+		);
+		ClientPlayNetworking.registerGlobalReceiver(
+			WorkshopItemSearchResultPayload.ID,
+			(payload, context) -> context.client().execute(() -> ClientWorkshopSearchState.acceptNetwork(payload))
 		);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> ClientWorkshopState.resetConnection());
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientWorkshopState.resetConnection());

@@ -22,13 +22,16 @@ import io.github.ikunkk02afk.workshopzone.network.DepositWorkshopItemsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestItemTagCandidatesPayload;
+import io.github.ikunkk02afk.workshopzone.network.SearchWorkshopItemPayload;
 import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworking;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopAreaScanner;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockCatalog;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockEntry;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopScanResult;
+import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchService;
 import net.fabricmc.fabric.api.entity.event.v1.ServerEntityWorldChangeEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerLivingEntityEvents;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
@@ -87,6 +90,7 @@ public final class WorkshopSessionManager {
 	private final AtomicLong nextSessionId = new AtomicLong();
 	private final WorkshopAreaScanner scanner = new WorkshopAreaScanner();
 	private final WorkshopDepositService depositService = new WorkshopDepositService(this);
+	private final WorkshopItemSearchService itemSearchService = new WorkshopItemSearchService(this);
 	private final Map<UUID, Long> lastOpenRequestTicks = new HashMap<>();
 	private final Map<UUID, Long> lastLabelEditTicks = new HashMap<>();
 	private final Map<UUID, Long> lastTagQueryTicks = new HashMap<>();
@@ -120,6 +124,7 @@ public final class WorkshopSessionManager {
 			lastTagQueryTicks.remove(handler.player.getUuid());
 			lastLabelDetailsTicks.remove(handler.player.getUuid());
 			depositService.clear(handler.player);
+			itemSearchService.clear(handler.player);
 			ContainerLabelFeedback.clear(handler.player.getUuid());
 		});
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) -> {
@@ -510,6 +515,12 @@ public final class WorkshopSessionManager {
 			net.minecraft.text.Text.translatable(result.result().translationKey(), result.movedItemCount(), result.usedDestinationCount()),
 			true
 		);
+	}
+
+	public WorkshopItemSearchResultPayload searchItem(ServerPlayerEntity player, SearchWorkshopItemPayload request) {
+		WorkshopItemSearchResultPayload result = itemSearchService.search(player, request);
+		WorkshopNetworking.sendItemSearchResult(player, result);
+		return result;
 	}
 
 	public WorkshopOpenResult openTarget(

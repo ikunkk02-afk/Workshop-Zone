@@ -37,12 +37,14 @@ public final class WorkshopNetworking {
 		PayloadTypeRegistry.playS2C().register(ContainerLabelDetailsPayload.ID, ContainerLabelDetailsPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ItemTagCandidatesPayload.ID, ItemTagCandidatesPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(WorkshopDepositResultPayload.ID, WorkshopDepositResultPayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(WorkshopItemSearchResultPayload.ID, WorkshopItemSearchResultPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopRefreshPayload.ID, RequestWorkshopRefreshPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(OpenWorkshopTargetPayload.ID, OpenWorkshopTargetPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(UpdateContainerLabelPayload.ID, UpdateContainerLabelPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestContainerLabelDetailsPayload.ID, RequestContainerLabelDetailsPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestItemTagCandidatesPayload.ID, RequestItemTagCandidatesPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(DepositWorkshopItemsPayload.ID, DepositWorkshopItemsPayload.CODEC);
+		PayloadTypeRegistry.playC2S().register(SearchWorkshopItemPayload.ID, SearchWorkshopItemPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestWorkshopRefreshPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().refresh(
@@ -70,6 +72,10 @@ public final class WorkshopNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(
 			DepositWorkshopItemsPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().deposit(context.player(), payload)
+		);
+		ServerPlayNetworking.registerGlobalReceiver(
+			SearchWorkshopItemPayload.ID,
+			(payload, context) -> WorkshopSessionManager.getInstance().searchItem(context.player(), payload)
 		);
 	}
 
@@ -140,6 +146,10 @@ public final class WorkshopNetworking {
 	}
 
 	public static void sendDepositResult(ServerPlayerEntity player, WorkshopDepositResultPayload payload) {
+		ServerPlayNetworking.send(player, payload);
+	}
+
+	public static void sendItemSearchResult(ServerPlayerEntity player, WorkshopItemSearchResultPayload payload) {
 		ServerPlayNetworking.send(player, payload);
 	}
 

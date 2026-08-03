@@ -8,9 +8,9 @@ final class WorkshopWidgetRegistry {
 	private WorkshopWidgetRegistry() {
 	}
 
-	static <T> T replaceSingle(List<T> widgets, Predicate<T> isWorkshopWidget, Supplier<T> factory) {
+	static <T, U extends T> U replaceSingle(List<T> widgets, Predicate<T> isWorkshopWidget, Supplier<U> factory) {
 		widgets.removeIf(isWorkshopWidget);
-		T widget = factory.get();
+		U widget = factory.get();
 		widgets.add(widget);
 		return widget;
 	}
