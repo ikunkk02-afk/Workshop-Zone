@@ -155,5 +155,21 @@
   "message.workshop_zone.deposit.stale_snapshot": "工坊数据已过期，请刷新后重试",
   "message.workshop_zone.deposit.cooldown": "操作过快，请稍后重试",
   "message.workshop_zone.deposit.denied": "无权向目标容器归仓",
-  "message.workshop_zone.deposit.internal_error": "归仓时发生内部错误"
+  "message.workshop_zone.deposit.internal_error": "归仓时发生内部错误",
+  "gui.workshop_zone.position.button": "调整工坊面板位置",
+  "gui.workshop_zone.position.title": "面板位置",
+  "gui.workshop_zone.position.auto": "自动",
+  "gui.workshop_zone.position.right": "右侧",
+  "gui.workshop_zone.position.left": "左侧",
+  "gui.workshop_zone.position.top": "上方",
+  "gui.workshop_zone.position.bottom": "下方",
+  "gui.workshop_zone.position.custom": "自定义",
+  "gui.workshop_zone.position.reset": "重置位置",
+  "gui.workshop_zone.position.detected": "已检测：%s",
+  "gui.workshop_zone.position.detected_multiple": "检测到多个配方查看模组，已启用自动避让。",
+  "gui.workshop_zone.position.auto_recipe_viewer": "将优先放置在上方",
+  "gui.workshop_zone.position.drag_hint": "拖动标题栏调整位置",
+  "gui.workshop_zone.position.saved": "位置已保存",
+  "gui.workshop_zone.position.fallback": "空间不足，已使用备用位置",
+  "gui.workshop_zone.position.no_space": "空间不足，仅显示折叠按钮"
 }

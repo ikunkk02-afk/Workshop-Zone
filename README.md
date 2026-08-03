@@ -13,10 +13,11 @@ Workshop Zone 是一个处于早期开发阶段的 Fabric 模组。它在服务�
 - Phase 1 / Step 7：按标签一键归仓——已完成
 - Phase 1 / Step 8：响应式工坊 GUI——已完成
 - Phase 1 / Step 9：自定义多标签白名单——已完成
+- Phase 1 / Step 10：配方查看器兼容与侧边栏位置设置——已完成
 
 当前支持箱子、陷阱箱、木桶、工作台、熔炉、高炉、烟熏炉、锻造台、三种铁砧、切石机、砂轮、织布机、制图台、酿造台和附魔台。相连的大箱子只计为一个逻辑容器；制箭台、漏斗、潜影盒和模组机器不参与扫描或切换。
 
-侧边栏与标签编辑器会根据窗口宽高、GUI Scale、语言文字宽度、原版 GUI 和配方书占用空间，在屏幕左右两侧选择可用区域，并在 `154–280` 像素范围内切换标准、紧凑或窄布局。模式按钮和标签操作按钮按当前翻译文本的实际宽度选择列数；宽面板优先把三个模式放在同一行、把七个白名单操作排为三列，并优先为白名单列表保留至少四个完整条目的可视空间。渲染、点击、滚轮和 Tooltip 共享同一份布局结果；放不下的文字显示省略号，完整内容保留在 Tooltip 与旁白中。
+侧边栏与标签编辑器会根据窗口宽高、GUI Scale、语言文字宽度、原版 GUI、配方书占用空间和客户端位置设置，在右、左、上、下或自定义位置之间解析同一份最终布局，并在 `154–280` 像素范围内切换标准、紧凑或窄布局。模式按钮和标签操作按钮按当前翻译文本的实际宽度选择列数；宽面板优先把三个模式放在同一行、把七个白名单操作排为三列，并优先为白名单列表保留至少四个完整条目的可视空间。渲染、点击、滚轮、拖动、Tooltip 与配方查看器排除区域共享同一份最终矩形；放不下的文字显示省略号，完整内容保留在 Tooltip 与旁白中。
 
 ## 容器标签
 
@@ -92,7 +93,29 @@ Item Tag 成员不会展开写入 NBT，也不会缓存成永久成员列表。�
 - Fabric Loader 0.19.3 或更高版本
 - Fabric API 0.116.15+1.21.1 或兼容的 1.21.1 版本
 
-Fabric API 是唯一必需前置。项目没有增加 Mod Menu、Cloth Config、EMI 或其他运行时依赖。
+Fabric API 是唯一必需前置。JEI、EMI 和 REI 都不是强制前置；`fabric.mod.json` 只在 `suggests` 中声明可选兼容。项目没有增加 Mod Menu、Cloth Config 或新的正式运行时依赖。
+
+## 配方查看器兼容与面板位置
+
+客户端使用 Fabric Loader 的公开 API 精确检测 `jei`、`emi` 和 `roughlyenoughitems`。AUTO 模式检测到任一配方查看器时按“上方 → 左侧 → 下方 → 折叠按钮”的顺序避开右侧物品列表；未检测到配方查看器，或关闭 `autoAvoidRecipeViewers` 时，继续保持原来的“右侧 → 左侧 → 上方 → 下方 → 折叠按钮”顺序。玩家明确选择右、左、上或下时会优先尊重该选择，但最终矩形仍会限制在屏幕内，空间不足时安全回退。
+
+侧边栏标题区的 `P` 按钮可以选择自动、右侧、左侧、上方、下方、自定义或重置位置。TOP/BOTTOM 都以原版 GUI 的水平中心为基准，并分别放在 GUI 上边缘或下边缘之外；CUSTOM 模式只能从标题栏空白区域开始拖动，归仓、标签、刷新、位置和折叠按钮不会触发拖动。拖动期间只更新内存中的预览矩形，释放鼠标后才保存归一化坐标；按 Esc 会取消本次拖动。
+
+客户端配置保存在 `config/workshop_zone-client.json`：
+
+```json
+{
+  "version": 1,
+  "sidebarPosition": "auto",
+  "autoAvoidRecipeViewers": true,
+  "customX": 0.5,
+  "customY": 0.1
+}
+```
+
+配置缺失时会生成默认文件；未知位置回退 AUTO，非有限数和越界坐标会安全限制。损坏 JSON 会被重命名为带时间戳的 `.corrupt-*.bak` 备份并恢复默认值，保存使用同目录临时文件和原子替换。该配置只在客户端初始化和设置改变时读写，不发送到服务器，也不会由专用服务器创建。
+
+JEI 1.21.1 的公开 `IGuiContainerHandler#getGuiExtraAreas` 已接入，返回当前实际绘制矩形；折叠时只返回折叠按钮。EMI 的 `EmiRegistry#addGenericExclusionArea` 与 REI 的 `REIClientPlugin#registerExclusionZones` 也存在公开 API，但本阶段没有增加它们的 compile-only API 依赖或插件入口，AUTO 位置避让仍对 EMI/REI 生效。AUTO 不实时判断 JEI 物品列表是否被玩家隐藏；需要时可在位置菜单中手动强制选择右侧。
 
 ## 工作方式
 
@@ -133,7 +156,10 @@ Windows 构建和测试：
 .\gradlew.bat clean build
 .\gradlew.bat runServer
 .\gradlew.bat runClient
+.\gradlew.bat runClient -Precipe_viewer=jei
 ```
+
+JEI `19.43.0.392` 来自官方 BlameJared Maven（`https://maven.blamejared.com`），坐标为 `mezz.jei:jei-1.21.1-fabric:19.43.0.392`。其 API 仅以 `modCompileOnly` 参与编译，完整 JEI 只在显式传入 `-Precipe_viewer=jei` 时通过 `modLocalRuntime` 加入开发运行，不会打包进 Workshop Zone JAR。
 
 人工测试时，在同一区域放置全部支持方块以及制箭台、漏斗和潜影盒，检查扫描、图标、Tooltip、滚动、折叠、刷新和侧边栏切换。还应检查：
 

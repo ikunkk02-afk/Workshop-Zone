@@ -7,11 +7,18 @@ version = project.mod_version
 group = project.maven_group
 
 repositories {
-	// Add repositories to retrieve artifacts from in here.
-	// You should only use this when depending on other mods because
-	// Loom adds the essential maven repositories to download Minecraft and libraries from automatically.
-	// See https://docs.gradle.org/current/userguide/declaring_repositories.html
-	// for more information about repositories.
+	maven {
+		name = "BlameJared"
+		url = "https://maven.blamejared.com"
+		content {
+			includeGroup "mezz.jei"
+		}
+	}
+}
+
+def recipeViewer = providers.gradleProperty("recipe_viewer").orElse("none").get().toLowerCase()
+if (!(recipeViewer in ["none", "jei"])) {
+	throw new GradleException("Unsupported recipe_viewer '${recipeViewer}'. Expected 'none' or 'jei'.")
 }
 
 loom {
@@ -47,6 +54,12 @@ dependencies {
 
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+
+	// JEI's public API is compile-only. The full mod is added only to an explicitly selected dev run.
+	modCompileOnly "mezz.jei:jei-1.21.1-fabric-api:${project.jei_version}"
+	if (recipeViewer == "jei") {
+		modLocalRuntime "mezz.jei:jei-1.21.1-fabric:${project.jei_version}"
+	}
 
 	testImplementation "org.junit.jupiter:junit-jupiter:5.11.0"
 	testRuntimeOnly "org.junit.platform:junit-platform-launcher"

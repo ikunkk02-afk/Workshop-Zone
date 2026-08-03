@@ -44,6 +44,7 @@ public final class WorkshopScreenIntegration {
 					"Removed workshop sidebar from screen {} with syncId {}",
 					removed.getClass().getName(), handledScreen.getScreenHandler().syncId
 				);
+				WorkshopSidebarPlacementRegistry.remove(handledScreen);
 				ClientWorkshopState.clearForScreen(handledScreen.getScreenHandler().syncId);
 			});
 		});

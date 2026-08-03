@@ -43,6 +43,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 public final class WorkshopSidebarWidget extends ClickableWidget {
 	private static final int HEADER_HEIGHT = WorkshopSidebarMetrics.HEADER_HEIGHT;
@@ -52,6 +53,15 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private static final int WHITELIST_ROW_HEIGHT = 26;
 	private static final int LABEL_EDITOR_HEADER_HEIGHT = 44;
 	private static final int BUTTON_HORIZONTAL_PADDING = 10;
+	private static final int POSITION_MENU_RESERVED_HEIGHT = 46;
+	private static final List<WorkshopSidebarPosition> POSITION_OPTIONS = List.of(
+		WorkshopSidebarPosition.AUTO,
+		WorkshopSidebarPosition.RIGHT,
+		WorkshopSidebarPosition.LEFT,
+		WorkshopSidebarPosition.TOP,
+		WorkshopSidebarPosition.BOTTOM,
+		WorkshopSidebarPosition.CUSTOM
+	);
 	private static final long PENDING_TIMEOUT_MILLIS = 3_000L;
 	private static final double MAX_VISUAL_OPEN_DISTANCE_SQUARED = 64.0;
 
@@ -102,8 +112,12 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private long pendingDepositExpiresAt;
 	private long observedDepositSequence;
 	private WorkshopSidebarMetrics sidebarMetrics;
+	private WorkshopSidebarPlacement sidebarPlacement;
 	private WorkshopLabelEditorLayout labelLayout;
 	private Text narratedControl;
+	private boolean positionMenuOpen;
+	private final WorkshopSidebarDragState dragState = new WorkshopSidebarDragState();
+	private WorkshopSidebarMetrics.Rect draggedPanel;
 
 	public WorkshopSidebarWidget(HandledScreen<?> screen, boolean showWhileLoading) {
 		super(0, 0, WorkshopSidebarMetrics.PREFERRED_PANEL_WIDTH, 120, Text.translatable("gui.workshop_zone.sidebar.title"));
@@ -121,6 +135,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		visible = presentation.frameworkVisible() && (snapshot != null || showWhileLoading);
 		active = presentation.interactive();
 		if (!visible) {
+			WorkshopSidebarPlacementRegistry.remove(screen);
 			return;
 		}
 		narratedControl = null;
@@ -151,7 +166,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		context.fill(getX() + 1, getY() + 1, getRight() - 1, getY() + HEADER_HEIGHT, 0xEE242432);
 		context.drawTextWithShadow(
 			textRenderer,
-			WorkshopTextLayout.ellipsize(textRenderer, Text.translatable("gui.workshop_zone.sidebar.title"), Math.max(0, getWidth() - 88)),
+			WorkshopTextLayout.ellipsize(textRenderer, Text.translatable("gui.workshop_zone.sidebar.title"), Math.max(0, getWidth() - 106)),
 			getX() + 7, getY() + 6, 0xFFFFFF
 		);
 		if (snapshot == null) {
@@ -182,16 +197,22 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		);
 
 		int collapseX = getRight() - BUTTON_SIZE - 3;
-		int refreshX = collapseX - BUTTON_SIZE - 2;
+		int positionX = collapseX - BUTTON_SIZE - 2;
+		int refreshX = positionX - BUTTON_SIZE - 2;
 		int labelX = refreshX - BUTTON_SIZE - 2;
 		boolean hasLabelButton = supportsLabelEditor(snapshot);
 		int depositX = (hasLabelButton ? labelX : refreshX) - BUTTON_SIZE - 2;
 		drawSmallButton(context, collapseX, getY() + 4, "<", mouseX, mouseY);
+		drawSmallButton(context, positionX, getY() + 4, "P", mouseX, mouseY);
 		drawSmallButton(context, refreshX, getY() + 4, "R", mouseX, mouseY);
 		if (hasLabelButton) {
 			drawSmallButton(context, labelX, getY() + 4, "L", mouseX, mouseY);
 		}
 		drawSmallButton(context, depositX, getY() + 4, depositPending ? "..." : "⇩", mouseX, mouseY);
+		if (positionMenuOpen) {
+			renderPositionMenu(context, textRenderer, mouseX, mouseY);
+			return;
+		}
 		if (labelEditor && supportsLabelEditor(snapshot)) {
 			renderLabelEditor(context, snapshot, mouseX, mouseY);
 			return;
@@ -303,6 +324,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			context.drawTooltip(textRenderer, depositTooltip, mouseX, mouseY);
 		} else if (hasLabelButton && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			context.drawTooltip(textRenderer, Text.translatable("gui.workshop_zone.label.button"), mouseX, mouseY);
+		} else if (inside(mouseX, mouseY, positionX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+			context.drawTooltip(textRenderer, Text.translatable("gui.workshop_zone.position.button"), mouseX, mouseY);
 		}
 		narratedEntry = hovered;
 		narratedState = hoveredState;
@@ -323,12 +346,24 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			return;
 		}
 		int collapseX = getRight() - BUTTON_SIZE - 3;
-		int refreshX = collapseX - BUTTON_SIZE - 2;
+		int positionX = collapseX - BUTTON_SIZE - 2;
+		int refreshX = positionX - BUTTON_SIZE - 2;
 		int labelX = refreshX - BUTTON_SIZE - 2;
 		boolean hasLabel = supportsLabelEditor(snapshot);
 		int depositX = (hasLabel ? labelX : refreshX) - BUTTON_SIZE - 2;
 		if (inside(mouseX, mouseY, collapseX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			WorkshopScreenIntegration.setExpanded(false);
+			return;
+		}
+		if (inside(mouseX, mouseY, positionX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
+			positionMenuOpen = !positionMenuOpen;
+			if (positionMenuOpen && labelEditor) {
+				closeLabelEditor();
+			}
+			return;
+		}
+		if (positionMenuOpen) {
+			handlePositionMenuClick(mouseX, mouseY);
 			return;
 		}
 		if (inside(mouseX, mouseY, refreshX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)
@@ -401,6 +436,12 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double horizontalAmount, double verticalAmount) {
 		ClientWorkshopSnapshot snapshot = matchingSnapshot();
+		if (dragState.dragging()) {
+			return true;
+		}
+		if (positionMenuOpen) {
+			return isMouseOver(mouseX, mouseY);
+		}
 		if (snapshot == null || !isMouseOver(mouseX, mouseY)
 			|| !WorkshopScreenIntegration.isExpanded() || sidebarMetrics == null || sidebarMetrics.collapsed()) {
 			return false;
@@ -432,6 +473,71 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	}
 
 	@Override
+	public boolean mouseClicked(double mouseX, double mouseY, int button) {
+		if (button == 0
+			&& active
+			&& visible
+			&& !positionMenuOpen
+			&& WorkshopScreenIntegration.isExpanded()
+			&& WorkshopClientConfigManager.get().sidebarPosition() == WorkshopSidebarPosition.CUSTOM
+			&& sidebarPlacement != null
+			&& !sidebarPlacement.collapsed()) {
+			ClientWorkshopSnapshot snapshot = matchingSnapshot();
+			WorkshopSidebarMetrics.Rect titleArea = new WorkshopSidebarMetrics.Rect(
+				getX(), getY(), getWidth(), Math.min(HEADER_HEIGHT, getHeight())
+			);
+			if (dragState.beginDrag(mouseX, mouseY, sidebarPlacement.panel(), titleArea, headerControlBounds(snapshot))) {
+				draggedPanel = sidebarPlacement.panel();
+				return true;
+			}
+		}
+		return super.mouseClicked(mouseX, mouseY, button);
+	}
+
+	@Override
+	public boolean mouseDragged(double mouseX, double mouseY, int button, double deltaX, double deltaY) {
+		if (button == 0 && dragState.dragging()) {
+			draggedPanel = dragState.updateDrag(mouseX, mouseY, screen.width, screen.height);
+			applyPanelBounds(draggedPanel);
+			sidebarPlacement = placementForDraggedPanel(draggedPanel);
+			sidebarMetrics = WorkshopSidebarMetrics.fromPlacement(sidebarPlacement);
+			WorkshopSidebarPlacementRegistry.update(screen, sidebarPlacement);
+			return true;
+		}
+		return super.mouseDragged(mouseX, mouseY, button, deltaX, deltaY);
+	}
+
+	@Override
+	public boolean mouseReleased(double mouseX, double mouseY, int button) {
+		if (button == 0 && dragState.dragging()) {
+			Optional<WorkshopSidebarDragState.CustomPosition> saved = dragState.finishDrag(screen.width, screen.height);
+			draggedPanel = null;
+			saved.ifPresent(position -> WorkshopClientConfigManager.update(
+				WorkshopClientConfigManager.get().withCustomPosition(position.x(), position.y())
+			));
+			return true;
+		}
+		return super.mouseReleased(mouseX, mouseY, button);
+	}
+
+	@Override
+	public boolean keyPressed(int keyCode, int scanCode, int modifiers) {
+		if (keyCode == 256 && dragState.dragging()) {
+			WorkshopSidebarMetrics.Rect original = dragState.cancelDrag();
+			draggedPanel = null;
+			if (original != null) {
+				applyPanelBounds(original);
+			}
+			return true;
+		}
+		if (keyCode == 256 && positionMenuOpen) {
+			positionMenuOpen = false;
+			return true;
+		}
+		return super.keyPressed(keyCode, scanCode, modifiers);
+	}
+
+	@Override
 	protected void appendClickableNarrations(NarrationMessageBuilder builder) {
 		builder.put(NarrationPart.TITLE, getMessage());
 		if (narratedControl != null) {
@@ -449,6 +555,23 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		return snapshot != null && snapshot.syncId() == screen.getScreenHandler().syncId ? snapshot : null;
 	}
 
+	public Optional<WorkshopSidebarPlacement> currentPlacementForCompatibility() {
+		ClientWorkshopSnapshot current = ClientWorkshopState.current();
+		ClientWorkshopSnapshot snapshot = matchingSnapshot(current);
+		WorkshopSidebarPresentation presentation = WorkshopSidebarPresentation.resolve(
+			current != null, snapshot != null, ClientWorkshopState.wasClearedByServer()
+		);
+		if (!presentation.frameworkVisible() || (snapshot == null && !showWhileLoading)) {
+			WorkshopSidebarPlacementRegistry.remove(screen);
+			return Optional.empty();
+		}
+		if (!updateBounds(snapshot, MinecraftClient.getInstance().textRenderer)) {
+			WorkshopSidebarPlacementRegistry.remove(screen);
+			return Optional.empty();
+		}
+		return Optional.of(sidebarPlacement);
+	}
+
 	private boolean updateBounds(ClientWorkshopSnapshot snapshot, TextRenderer renderer) {
 		HandledScreenAccessor accessor = (HandledScreenAccessor)screen;
 		int guiX = accessor.workshopZone$getX();
@@ -457,10 +580,30 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		int guiHeight = accessor.workshopZone$getBackgroundHeight();
 		boolean recipeBookOpen = screen instanceof RecipeBookProvider provider && provider.getRecipeBookWidget().isOpen();
 		int preferredWidth = preferredPanelWidth(renderer);
-		sidebarMetrics = WorkshopSidebarMetrics.calculate(
-			screen.width, screen.height, guiX, guiY, guiWidth, guiHeight, recipeBookOpen,
-			WorkshopScreenIntegration.isExpanded(), labelEditor, preferredWidth
+		WorkshopClientConfig config = WorkshopClientConfigManager.get();
+		sidebarPlacement = WorkshopSidebarPlacementResolver.resolve(
+			new WorkshopSidebarPlacementResolver.Input(
+				screen.width, screen.height, guiX, guiY, guiWidth, guiHeight, recipeBookOpen,
+				config.sidebarPosition(), config.autoAvoidRecipeViewers(), RecipeViewerDetector.hasAny(),
+				WorkshopScreenIntegration.isExpanded(), labelEditor || positionMenuOpen, preferredWidth,
+				config.customX(), config.customY()
+			)
 		);
+		if (sidebarPlacement.collapsed() && positionMenuOpen) {
+			positionMenuOpen = false;
+			sidebarPlacement = WorkshopSidebarPlacementResolver.resolve(
+				new WorkshopSidebarPlacementResolver.Input(
+					screen.width, screen.height, guiX, guiY, guiWidth, guiHeight, recipeBookOpen,
+					config.sidebarPosition(), config.autoAvoidRecipeViewers(), RecipeViewerDetector.hasAny(),
+					WorkshopScreenIntegration.isExpanded(), labelEditor, preferredWidth,
+					config.customX(), config.customY()
+				)
+			);
+		}
+		if (dragState.dragging() && draggedPanel != null) {
+			sidebarPlacement = placementForDraggedPanel(draggedPanel);
+		}
+		sidebarMetrics = WorkshopSidebarMetrics.fromPlacement(sidebarPlacement);
 		WorkshopSidebarMetrics.Rect panel = sidebarMetrics.panel();
 		setX(panel.left());
 		setY(panel.top());
@@ -478,6 +621,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		} else {
 			labelLayout = null;
 		}
+		WorkshopSidebarPlacementRegistry.update(screen, sidebarPlacement);
 		return panel.width() > 0 && panel.height() > 0;
 	}
 
@@ -523,6 +667,155 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		return labelEditorMode == ContainerLabelMode.WHITELIST && unavailable > 0
 			? Text.translatable("gui.workshop_zone.label.unavailable_entries", unavailable)
 			: null;
+	}
+
+	private void renderPositionMenu(DrawContext context, TextRenderer renderer, int mouseX, int mouseY) {
+		context.drawTextWithShadow(
+			renderer,
+			WorkshopTextLayout.ellipsize(
+				renderer,
+				Text.translatable("gui.workshop_zone.position.title"),
+				Math.max(0, getWidth() - 14)
+			),
+			getX() + 7,
+			getY() + HEADER_HEIGHT + 3,
+			0xFFFFFFFF
+		);
+		List<WorkshopSidebarMetrics.Rect> buttons = positionMenuBounds();
+		WorkshopSidebarPosition selected = WorkshopClientConfigManager.get().sidebarPosition();
+		for (int index = 0; index < POSITION_OPTIONS.size(); index++) {
+			WorkshopSidebarPosition option = POSITION_OPTIONS.get(index);
+			Text label = Text.literal(option == selected ? "● " : "  ")
+				.append(Text.translatable(positionTranslationKey(option)));
+			drawTextButton(context, buttons.get(index), label, true, mouseX, mouseY);
+		}
+		drawTextButton(
+			context,
+			buttons.get(buttons.size() - 1),
+			Text.translatable("gui.workshop_zone.position.reset"),
+			true,
+			mouseX,
+			mouseY
+		);
+
+		WorkshopSidebarMetrics.Rect lastButton = buttons.get(buttons.size() - 1);
+		WorkshopSidebarMetrics.Rect statusArea = new WorkshopSidebarMetrics.Rect(
+			getX() + 7,
+			lastButton.bottom() + 3,
+			Math.max(0, getWidth() - 14),
+			Math.max(0, getY() + getHeight() - lastButton.bottom() - 7)
+		);
+		Text status = positionMenuStatus();
+		if (status != null && statusArea.height() > 0) {
+			drawWrappedText(context, renderer, status, statusArea, 3, 0xFFA8A8A8);
+		}
+	}
+
+	private List<WorkshopSidebarMetrics.Rect> positionMenuBounds() {
+		int optionCount = POSITION_OPTIONS.size() + 1;
+		int available = Math.max(optionCount * 12, getHeight() - HEADER_HEIGHT - POSITION_MENU_RESERVED_HEIGHT);
+		int rowHeight = Math.max(12, Math.min(18, available / optionCount));
+		int top = getY() + HEADER_HEIGHT + 17;
+		List<WorkshopSidebarMetrics.Rect> result = new ArrayList<>(optionCount);
+		for (int index = 0; index < optionCount; index++) {
+			result.add(new WorkshopSidebarMetrics.Rect(
+				getX() + 5,
+				top + index * rowHeight,
+				Math.max(0, getWidth() - 10),
+				Math.max(1, rowHeight - 2)
+			));
+		}
+		return List.copyOf(result);
+	}
+
+	private void handlePositionMenuClick(double mouseX, double mouseY) {
+		List<WorkshopSidebarMetrics.Rect> buttons = positionMenuBounds();
+		for (int index = 0; index < buttons.size(); index++) {
+			if (!buttons.get(index).contains(mouseX, mouseY)) {
+				continue;
+			}
+			WorkshopClientConfig updated = index < POSITION_OPTIONS.size()
+				? WorkshopClientConfigManager.get().withPosition(POSITION_OPTIONS.get(index))
+				: WorkshopClientConfigManager.get().reset();
+			WorkshopClientConfigManager.update(updated);
+			positionMenuOpen = false;
+			return;
+		}
+	}
+
+	private Text positionMenuStatus() {
+		WorkshopClientConfig config = WorkshopClientConfigManager.get();
+		if (config.sidebarPosition() == WorkshopSidebarPosition.CUSTOM) {
+			return Text.translatable("gui.workshop_zone.position.drag_hint");
+		}
+		if (sidebarPlacement != null && sidebarPlacement.collapsed()) {
+			return Text.translatable("gui.workshop_zone.position.no_space");
+		}
+		if (sidebarPlacement != null && sidebarPlacement.fallbackUsed()) {
+			return Text.translatable("gui.workshop_zone.position.fallback");
+		}
+		if (RecipeViewerDetector.hasAny()) {
+			String names = String.join(", ", RecipeViewerDetector.detected().stream()
+				.map(DetectedRecipeViewer::displayName)
+				.toList());
+			Text detected = Text.translatable("gui.workshop_zone.position.detected", names);
+			if (RecipeViewerDetector.detected().size() > 1) {
+				detected = Text.translatable("gui.workshop_zone.position.detected_multiple").append(" ").append(detected);
+			}
+			if (config.sidebarPosition() == WorkshopSidebarPosition.AUTO && config.autoAvoidRecipeViewers()) {
+				return detected.copy().append(" · ").append(Text.translatable("gui.workshop_zone.position.auto_recipe_viewer"));
+			}
+			return detected;
+		}
+		return null;
+	}
+
+	private static String positionTranslationKey(WorkshopSidebarPosition position) {
+		return "gui.workshop_zone.position." + position.id();
+	}
+
+	private List<WorkshopSidebarMetrics.Rect> headerControlBounds(ClientWorkshopSnapshot snapshot) {
+		int collapseX = getRight() - BUTTON_SIZE - 3;
+		int positionX = collapseX - BUTTON_SIZE - 2;
+		int refreshX = positionX - BUTTON_SIZE - 2;
+		int labelX = refreshX - BUTTON_SIZE - 2;
+		boolean hasLabel = snapshot != null && supportsLabelEditor(snapshot);
+		int depositX = (hasLabel ? labelX : refreshX) - BUTTON_SIZE - 2;
+		List<WorkshopSidebarMetrics.Rect> bounds = new ArrayList<>();
+		bounds.add(new WorkshopSidebarMetrics.Rect(collapseX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE));
+		bounds.add(new WorkshopSidebarMetrics.Rect(positionX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE));
+		if (snapshot != null) {
+			bounds.add(new WorkshopSidebarMetrics.Rect(refreshX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE));
+			bounds.add(new WorkshopSidebarMetrics.Rect(depositX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE));
+			if (hasLabel) {
+				bounds.add(new WorkshopSidebarMetrics.Rect(labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE));
+			}
+		}
+		return List.copyOf(bounds);
+	}
+
+	private WorkshopSidebarPlacement placementForDraggedPanel(WorkshopSidebarMetrics.Rect panel) {
+		return new WorkshopSidebarPlacement(
+			WorkshopSidebarPosition.CUSTOM,
+			WorkshopSidebarPosition.CUSTOM,
+			panel,
+			false,
+			false,
+			true,
+			new WorkshopSidebarMetrics.Rect(
+				panel.left() + 4,
+				panel.top(),
+				Math.max(0, panel.width() - 96),
+				Math.min(HEADER_HEIGHT, panel.height())
+			)
+		);
+	}
+
+	private void applyPanelBounds(WorkshopSidebarMetrics.Rect panel) {
+		setX(panel.left());
+		setY(panel.top());
+		setWidth(panel.width());
+		setHeight(panel.height());
 	}
 
 	private void drawSmallButton(DrawContext context, int x, int y, String label, int mouseX, int mouseY) {

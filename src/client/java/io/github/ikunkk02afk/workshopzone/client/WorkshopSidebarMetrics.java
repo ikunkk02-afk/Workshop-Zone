@@ -1,7 +1,5 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
-import net.minecraft.util.math.MathHelper;
-
 public record WorkshopSidebarMetrics(
 	Rect panel,
 	Rect content,
@@ -18,8 +16,6 @@ public record WorkshopSidebarMetrics(
 	public static final int COLLAPSED_WIDTH = 18;
 	public static final int EDGE_GAP = 4;
 	public static final int HEADER_HEIGHT = 54;
-	private static final int COLLAPSED_HEIGHT = 20;
-	private static final int EDITOR_PREFERRED_HEIGHT = 260;
 
 	public static WorkshopSidebarMetrics calculate(
 		int screenWidth,
@@ -33,91 +29,41 @@ public record WorkshopSidebarMetrics(
 		boolean labelEditor,
 		int preferredWidth
 	) {
-		int safeScreenWidth = Math.max(EDGE_GAP * 2 + COLLAPSED_WIDTH, screenWidth);
-		int safeScreenHeight = Math.max(EDGE_GAP * 2 + COLLAPSED_HEIGHT, screenHeight);
-		int requestedWidth = MathHelper.clamp(preferredWidth, MIN_PANEL_WIDTH, MAX_PANEL_WIDTH);
-		int rightX = guiX + guiWidth + EDGE_GAP;
-		int rightSpace = Math.max(0, safeScreenWidth - EDGE_GAP - rightX);
-		int leftRight = guiX - EDGE_GAP;
-		int leftSpace = recipeBookOpen ? 0 : Math.max(0, leftRight - EDGE_GAP);
+		WorkshopSidebarPlacement placement = WorkshopSidebarPlacementResolver.resolve(
+			new WorkshopSidebarPlacementResolver.Input(
+				screenWidth, screenHeight, guiX, guiY, guiWidth, guiHeight, recipeBookOpen,
+				WorkshopSidebarPosition.AUTO, true, false, expanded, labelEditor,
+				preferredWidth, WorkshopClientConfig.DEFAULT_CUSTOM_X, WorkshopClientConfig.DEFAULT_CUSTOM_Y
+			)
+		);
+		return fromPlacement(placement);
+	}
 
-		Side chosen = Side.NONE;
-		int panelWidth = COLLAPSED_WIDTH;
-		if (expanded) {
-			if (rightSpace >= requestedWidth) {
-				chosen = Side.RIGHT;
-				panelWidth = requestedWidth;
-			} else if (leftSpace >= requestedWidth) {
-				chosen = Side.LEFT;
-				panelWidth = requestedWidth;
-			} else if (rightSpace >= MIN_PANEL_WIDTH || leftSpace >= MIN_PANEL_WIDTH) {
-				chosen = rightSpace >= leftSpace ? Side.RIGHT : Side.LEFT;
-				panelWidth = Math.min(requestedWidth, chosen == Side.RIGHT ? rightSpace : leftSpace);
-			}
-		}
-
-		boolean collapsed = chosen == Side.NONE;
-		int availableHeight = Math.max(COLLAPSED_HEIGHT, safeScreenHeight - EDGE_GAP * 2);
-		int desiredHeight = collapsed
-			? COLLAPSED_HEIGHT
-			: Math.min(availableHeight, Math.max(72, labelEditor ? Math.max(guiHeight, EDITOR_PREFERRED_HEIGHT) : guiHeight));
-		int panelX;
-		int panelY;
-		if (!collapsed && chosen == Side.RIGHT) {
-			panelX = rightX;
-			panelY = clampToScreen(guiY, desiredHeight, safeScreenHeight);
-		} else if (!collapsed) {
-			panelX = leftRight - panelWidth;
-			panelY = clampToScreen(guiY, desiredHeight, safeScreenHeight);
-		} else {
-			TabPlacement tab = placeCollapsedTab(safeScreenWidth, safeScreenHeight, guiX, guiY, guiWidth, guiHeight, recipeBookOpen);
-			panelX = tab.x();
-			panelY = tab.y();
-			chosen = tab.side();
-		}
-
-		Rect panel = new Rect(panelX, panelY, panelWidth, desiredHeight);
+	public static WorkshopSidebarMetrics fromPlacement(WorkshopSidebarPlacement placement) {
+		Rect panel = placement.panel();
+		boolean collapsed = placement.collapsed();
 		Rect content = panel.inset(collapsed ? 0 : 5, collapsed ? 0 : 4);
-		int headerHeight = collapsed ? desiredHeight : Math.min(HEADER_HEIGHT, desiredHeight);
+		int headerHeight = collapsed ? panel.height() : Math.min(HEADER_HEIGHT, panel.height());
 		Rect header = new Rect(panel.left(), panel.top(), panel.width(), headerHeight);
 		int listTop = Math.min(panel.bottom(), panel.top() + headerHeight);
 		Rect list = new Rect(panel.left() + (collapsed ? 0 : 3), listTop,
 			Math.max(0, panel.width() - (collapsed ? 0 : 6)), Math.max(0, panel.bottom() - listTop - (collapsed ? 0 : 4)));
 		return new WorkshopSidebarMetrics(
-			panel, content, header, list, chosen, WorkshopSidebarLayoutMode.forWidth(panelWidth), collapsed, false
+			panel, content, header, list, sideFor(placement.resolvedPosition()),
+			WorkshopSidebarLayoutMode.forWidth(panel.width()), collapsed, false
 		);
 	}
 
-	private static TabPlacement placeCollapsedTab(
-		int screenWidth,
-		int screenHeight,
-		int guiX,
-		int guiY,
-		int guiWidth,
-		int guiHeight,
-		boolean recipeBookOpen
-	) {
-		int rightX = guiX + guiWidth + EDGE_GAP;
-		if (rightX + COLLAPSED_WIDTH <= screenWidth - EDGE_GAP) {
-			return new TabPlacement(rightX, clampToScreen(guiY, COLLAPSED_HEIGHT, screenHeight), Side.RIGHT);
-		}
-		int leftX = guiX - COLLAPSED_WIDTH - EDGE_GAP;
-		if (!recipeBookOpen && leftX >= EDGE_GAP) {
-			return new TabPlacement(leftX, clampToScreen(guiY, COLLAPSED_HEIGHT, screenHeight), Side.LEFT);
-		}
-		int centeredX = MathHelper.clamp(guiX + guiWidth - COLLAPSED_WIDTH, EDGE_GAP, screenWidth - COLLAPSED_WIDTH - EDGE_GAP);
-		if (guiY - COLLAPSED_HEIGHT - EDGE_GAP >= EDGE_GAP) {
-			return new TabPlacement(centeredX, guiY - COLLAPSED_HEIGHT - EDGE_GAP, Side.ABOVE);
-		}
-		if (guiY + guiHeight + EDGE_GAP + COLLAPSED_HEIGHT <= screenHeight - EDGE_GAP) {
-			return new TabPlacement(centeredX, guiY + guiHeight + EDGE_GAP, Side.BELOW);
-		}
-		return new TabPlacement(screenWidth - COLLAPSED_WIDTH - EDGE_GAP, EDGE_GAP, Side.SCREEN_EDGE);
+	private static Side sideFor(WorkshopSidebarPosition position) {
+		return switch (position) {
+			case RIGHT -> Side.RIGHT;
+			case LEFT -> Side.LEFT;
+			case TOP -> Side.ABOVE;
+			case BOTTOM -> Side.BELOW;
+			case AUTO, CUSTOM -> Side.SCREEN_EDGE;
+		};
 	}
 
-	private static int clampToScreen(int desiredY, int height, int screenHeight) {
-		return MathHelper.clamp(desiredY, EDGE_GAP, Math.max(EDGE_GAP, screenHeight - height - EDGE_GAP));
-	}
 
 	public enum Side {
 		RIGHT,
@@ -158,6 +104,4 @@ public record WorkshopSidebarMetrics(
 		}
 	}
 
-	private record TabPlacement(int x, int y, Side side) {
-	}
 }

@@ -25,6 +25,9 @@
 		"client": [
 			"io.github.ikunkk02afk.workshopzone.client.WorkshopZoneClient"
 		],
+		"jei_mod_plugin": [
+			"io.github.ikunkk02afk.workshopzone.client.compat.jei.WorkshopZoneJeiPlugin"
+		],
 		"fabric-datagen": [
 			"io.github.ikunkk02afk.workshopzone.client.WorkshopZoneDataGenerator"
 		]
@@ -34,5 +37,10 @@
 		"minecraft": "~1.21.1",
 		"java": ">=21",
 		"fabric-api": ">=0.116.15+1.21.1"
+	},
+	"suggests": {
+		"jei": "*",
+		"emi": "*",
+		"roughlyenoughitems": "*"
 	}
 }

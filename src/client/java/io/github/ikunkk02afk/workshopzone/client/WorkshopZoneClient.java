@@ -13,6 +13,8 @@ import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotPayload;
 public class WorkshopZoneClient implements ClientModInitializer {
 	@Override
 	public void onInitializeClient() {
+		RecipeViewerDetector.initialize();
+		WorkshopClientConfigManager.initialize();
 		ClientPlayNetworking.registerGlobalReceiver(WorkshopSnapshotPayload.ID, (payload, context) -> {
 			WorkshopZone.LOGGER.debug(
 				"Received workshop snapshot session {} revision {} syncId {} with {} entries",

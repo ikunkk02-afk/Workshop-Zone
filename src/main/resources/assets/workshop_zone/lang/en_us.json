@@ -155,5 +155,21 @@
   "message.workshop_zone.deposit.stale_snapshot": "Workshop data is stale, please refresh",
   "message.workshop_zone.deposit.cooldown": "Please wait before depositing again",
   "message.workshop_zone.deposit.denied": "Deposit denied to target container",
-  "message.workshop_zone.deposit.internal_error": "Internal error during deposit"
+  "message.workshop_zone.deposit.internal_error": "Internal error during deposit",
+  "gui.workshop_zone.position.button": "Adjust workshop panel position",
+  "gui.workshop_zone.position.title": "Panel Position",
+  "gui.workshop_zone.position.auto": "Automatic",
+  "gui.workshop_zone.position.right": "Right",
+  "gui.workshop_zone.position.left": "Left",
+  "gui.workshop_zone.position.top": "Top",
+  "gui.workshop_zone.position.bottom": "Bottom",
+  "gui.workshop_zone.position.custom": "Custom",
+  "gui.workshop_zone.position.reset": "Reset position",
+  "gui.workshop_zone.position.detected": "Detected: %s",
+  "gui.workshop_zone.position.detected_multiple": "Multiple recipe viewers detected; automatic avoidance is enabled.",
+  "gui.workshop_zone.position.auto_recipe_viewer": "Top placement will be preferred",
+  "gui.workshop_zone.position.drag_hint": "Drag the title bar to move the panel",
+  "gui.workshop_zone.position.saved": "Position saved",
+  "gui.workshop_zone.position.fallback": "Not enough space; using a fallback position",
+  "gui.workshop_zone.position.no_space": "Not enough space; showing only the collapsed button"
 }
