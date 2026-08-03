@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.deposit;
 
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelMode;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelRule;
 import io.github.ikunkk02afk.workshopzone.label.LogicalContainer;
 import net.fabricmc.fabric.api.transfer.v1.item.InventoryStorage;
@@ -14,6 +15,7 @@ import net.minecraft.util.math.BlockPos;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 
 public record WorkshopDepositDestination(
 	LogicalContainer container,
@@ -52,6 +54,20 @@ public record WorkshopDepositDestination(
 
 	public boolean matches(ItemStack stack) {
 		return rule.canInsert(stack);
+	}
+
+	public Optional<WorkshopDepositMatchKind> matchKind(ItemStack stack) {
+		if (!rule.canInsert(stack) || stack.isEmpty()) {
+			return Optional.empty();
+		}
+		return switch (rule.mode()) {
+			case EXACT_ITEM -> Optional.of(WorkshopDepositMatchKind.SINGLE_EXACT);
+			case ITEM_TAG -> Optional.of(WorkshopDepositMatchKind.SINGLE_ITEM_TAG);
+			case WHITELIST -> rule.matchesExactItem(stack)
+				? Optional.of(WorkshopDepositMatchKind.WHITELIST_EXACT)
+				: rule.matchesItemTag(stack) ? Optional.of(WorkshopDepositMatchKind.WHITELIST_ITEM_TAG) : Optional.empty();
+			case NONE -> Optional.empty();
+		};
 	}
 
 	public long insert(ItemVariant variant, long maxAmount, TransactionContext transaction) {

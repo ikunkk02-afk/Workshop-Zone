@@ -71,6 +71,8 @@ public record WorkshopNetworkEntry(
 		entry.labelSummary.itemTagId().ifPresent(buf::writeIdentifier);
 		buf.writeBoolean(entry.labelSummary.representativeItemId().isPresent());
 		entry.labelSummary.representativeItemId().ifPresent(buf::writeIdentifier);
+		buf.writeVarInt(entry.labelSummary.whitelistEntryCount());
+		buf.writeVarInt(entry.labelSummary.unavailableEntryCount());
 		buf.writeBoolean(entry.labelSummary.conflict());
 		buf.writeBoolean(entry.labelSummary.unavailable());
 	}
@@ -93,12 +95,17 @@ public record WorkshopNetworkEntry(
 		Optional<Identifier> exactItemId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
 		Optional<Identifier> itemTagId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
 		Optional<Identifier> representativeItemId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
+		int whitelistEntryCount = buf.readVarInt();
+		int unavailableEntryCount = buf.readVarInt();
 		boolean conflict = buf.readBoolean();
 		boolean unavailable = buf.readBoolean();
 		try {
 			return new WorkshopNetworkEntry(
 				type, position, blockId, distanceSquared, container, workstation, customName,
-				new ContainerLabelSummary(labelMode, exactItemId, itemTagId, representativeItemId, conflict, unavailable)
+				new ContainerLabelSummary(
+					labelMode, exactItemId, itemTagId, representativeItemId,
+					whitelistEntryCount, unavailableEntryCount, conflict, unavailable
+				)
 			);
 		} catch (IllegalArgumentException exception) {
 			throw new DecoderException("Invalid workshop entry", exception);

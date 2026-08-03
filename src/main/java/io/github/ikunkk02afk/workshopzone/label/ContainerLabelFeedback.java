@@ -33,6 +33,8 @@ public final class ContainerLabelFeedback {
 			message = Text.translatable("gui.workshop_zone.label.content_conflict");
 		} else if (summary.ruleConflict()) {
 			message = Text.translatable("message.workshop_zone.label.conflict");
+		} else if (summary.mode() == ContainerLabelMode.WHITELIST) {
+			message = Text.translatable("message.workshop_zone.label.whitelist_rejected_insert");
 		} else if (summary.mode() == ContainerLabelMode.ITEM_TAG) {
 			message = Text.translatable(
 				"message.workshop_zone.label.category_rejected_insert",

@@ -87,6 +87,32 @@ class WorkshopResponsiveLayoutTest {
 	}
 
 	@Test
+	void sevenWhitelistActionsUseResponsiveRowsWithoutOverlap() {
+		for (int width : List.of(154, 180, 210, 280)) {
+			WorkshopLabelEditorLayout layout = WorkshopLabelEditorLayout.calculate(
+				new WorkshopSidebarMetrics.Rect(5, 5, width, 300), 54, 3, 7, 2
+			);
+			assertEquals(7, layout.actionButtons().size());
+			assertNoOverlap(layout.actionButtons());
+			layout.actionButtons().forEach(rect -> assertInside(rect, layout.content()));
+			assertFalse(layout.modeArea().intersects(layout.actionArea()));
+			if (width == 154) {
+				layout.actionButtons().forEach(rect -> assertEquals(layout.content().width(), rect.width()));
+			}
+		}
+	}
+
+	@Test
+	void shortNarrowWhitelistFallsBackToTwoColumnsWithoutOverlap() {
+		WorkshopLabelEditorLayout layout = WorkshopLabelEditorLayout.calculate(
+			new WorkshopSidebarMetrics.Rect(5, 5, 154, 252), 54, 3, 7, 2
+		);
+		assertNoOverlap(layout.actionButtons());
+		assertFalse(layout.modeArea().intersects(layout.actionArea()));
+		assertTrue(layout.actionButtons().stream().allMatch(rect -> rect.width() < layout.content().width()));
+	}
+
+	@Test
 	void layoutModeRespondsToActualPanelWidth() {
 		assertEquals(WorkshopSidebarLayoutMode.NARROW, WorkshopSidebarLayoutMode.forWidth(154));
 		assertEquals(WorkshopSidebarLayoutMode.COMPACT, WorkshopSidebarLayoutMode.forWidth(190));

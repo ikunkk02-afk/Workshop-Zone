@@ -1,9 +1,11 @@
 package io.github.ikunkk02afk.workshopzone.network;
 
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntry;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelMode;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary;
 import io.github.ikunkk02afk.workshopzone.label.ContainerTagCandidate;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
+import io.netty.handler.codec.DecoderException;
 import io.netty.buffer.Unpooled;
 import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.registry.DynamicRegistryManager;
@@ -15,6 +17,7 @@ import java.util.Optional;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class ContainerLabelPayloadTest {
 	@Test
@@ -75,6 +78,80 @@ class ContainerLabelPayloadTest {
 		ContainerLabelEditResultPayload.CODEC.encode(buffer, original);
 		assertEquals(original, ContainerLabelEditResultPayload.CODEC.decode(buffer));
 		assertEquals(0, buffer.readableBytes());
+	}
+
+	@Test
+	void whitelistEditPayloadRoundTrips() {
+		List<ContainerLabelEntry> entries = List.of(
+			ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot")),
+			ContainerLabelEntry.itemTag(Identifier.ofVanilla("logs"))
+		);
+		UpdateContainerLabelPayload original = new UpdateContainerLabelPayload(
+			12, 4, 9, new BlockPos(1, 64, -3), ContainerLabelOperation.SET_WHITELIST,
+			Optional.empty(), entries
+		);
+		RegistryByteBuf buffer = buffer();
+		UpdateContainerLabelPayload.CODEC.encode(buffer, original);
+		assertEquals(original, UpdateContainerLabelPayload.CODEC.decode(buffer));
+		assertEquals(entries, original.whitelistEntries());
+		assertEquals(0, buffer.readableBytes());
+	}
+
+	@Test
+	void labelDetailsPayloadsRoundTrip() {
+		RequestContainerLabelDetailsPayload request = new RequestContainerLabelDetailsPayload(
+			77, 12, 4, 9, new BlockPos(1, 64, -3)
+		);
+		RegistryByteBuf requestBuffer = buffer();
+		RequestContainerLabelDetailsPayload.CODEC.encode(requestBuffer, request);
+		assertEquals(request, RequestContainerLabelDetailsPayload.CODEC.decode(requestBuffer));
+		assertEquals(0, requestBuffer.readableBytes());
+
+		ContainerLabelDetailsPayload response = new ContainerLabelDetailsPayload(
+			77, 12, 4, 9, new BlockPos(1, 64, -3), ContainerLabelEditResult.SUCCESS,
+			ContainerLabelMode.WHITELIST,
+			List.of(
+				new ContainerLabelDetailsEntry(
+					ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot")), false,
+					Optional.of(Identifier.ofVanilla("iron_ingot"))
+				),
+				new ContainerLabelDetailsEntry(
+					ContainerLabelEntry.itemTag(Identifier.of("missing", "tag")), true, Optional.empty()
+				)
+			),
+			1, true, false
+		);
+		RegistryByteBuf responseBuffer = buffer();
+		ContainerLabelDetailsPayload.CODEC.encode(responseBuffer, response);
+		assertEquals(response, ContainerLabelDetailsPayload.CODEC.decode(responseBuffer));
+		assertEquals(0, responseBuffer.readableBytes());
+	}
+
+	@Test
+	void whitelistSnapshotContainsOnlySummary() {
+		ContainerLabelSummary summary = new ContainerLabelSummary(
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(),
+			Optional.of(Identifier.ofVanilla("iron_ingot")), 12, 2, false, false
+		);
+		WorkshopNetworkEntry original = new WorkshopNetworkEntry(
+			WorkshopBlockType.CHEST, BlockPos.ORIGIN, Identifier.ofVanilla("chest"), 0,
+			true, false, Optional.empty(), summary
+		);
+		RegistryByteBuf buffer = buffer();
+		WorkshopNetworkEntry.write(buffer, original);
+		WorkshopNetworkEntry decoded = WorkshopNetworkEntry.read(buffer);
+		assertEquals(summary, decoded.labelSummary());
+		assertEquals(0, buffer.readableBytes());
+	}
+
+	@Test
+	void whitelistEditPayloadRejectsMoreThanThirtyTwoEntries() {
+		List<ContainerLabelEntry> entries = java.util.stream.IntStream.range(0, 33)
+			.mapToObj(index -> ContainerLabelEntry.item(Identifier.of("test", "item_" + index)))
+			.toList();
+		assertThrows(IllegalArgumentException.class, () -> new UpdateContainerLabelPayload(
+			1, 2, 3, new BlockPos(4, 5, 6), ContainerLabelOperation.SET_WHITELIST, Optional.empty(), entries
+		));
 	}
 
 	@Test

@@ -52,12 +52,14 @@ public final class ContainerLabelService {
 		if (!firstRule.equals(secondHolder.workshopZone$getLabelRule())) {
 			return ContainerLabelSummary.CONFLICT;
 		}
-		if (firstRule.mode() != ContainerLabelMode.ITEM_TAG) {
+		if (firstRule.mode() == ContainerLabelMode.NONE || firstRule.mode() == ContainerLabelMode.EXACT_ITEM) {
 			return ContainerLabelSummary.of(firstRule);
 		}
 		boolean contentConflict = !validateContents(first, firstRule).compatible()
 			|| !validateContents(second, firstRule).compatible();
-		return ContainerLabelSummary.itemTag(firstRule, contentConflict);
+		return firstRule.mode() == ContainerLabelMode.ITEM_TAG
+			? ContainerLabelSummary.itemTag(firstRule, contentConflict)
+			: ContainerLabelSummary.whitelist(firstRule, contentConflict);
 	}
 
 	public static ContainerLabelSummary reconcile(LogicalContainer container) {
@@ -74,8 +76,7 @@ public final class ContainerLabelService {
 			? first
 			: second.mode() != ContainerLabelMode.NONE && first.mode() == ContainerLabelMode.NONE ? second : null;
 		if (labeled == null
-			|| labeled.mode() == ContainerLabelMode.ITEM_TAG
-				&& ContainerItemTags.availability(labeled.itemTagId().orElseThrow()) != ContainerItemTags.Availability.AVAILABLE
+			|| ContainerLabelSummary.of(labeled).unavailable()
 			|| !validateContents(container.inventory(), labeled).compatible()) {
 			return ContainerLabelSummary.CONFLICT;
 		}
@@ -94,14 +95,17 @@ public final class ContainerLabelService {
 	}
 
 	private static ContainerLabelSummary summarizeMatchingRule(Inventory inventory, ContainerLabelRule rule) {
-		if (rule.mode() != ContainerLabelMode.ITEM_TAG) {
-			return ContainerLabelSummary.of(rule);
-		}
-		Identifier tagId = rule.itemTagId().orElseThrow();
-		if (ContainerItemTags.availability(tagId) != ContainerItemTags.Availability.AVAILABLE) {
-			return ContainerLabelSummary.itemTag(rule, false);
-		}
-		return ContainerLabelSummary.itemTag(rule, !validateContents(inventory, rule).compatible());
+		return switch (rule.mode()) {
+			case NONE, EXACT_ITEM -> ContainerLabelSummary.of(rule);
+			case ITEM_TAG -> {
+				Identifier tagId = rule.itemTagId().orElseThrow();
+				if (ContainerItemTags.availability(tagId) != ContainerItemTags.Availability.AVAILABLE) {
+					yield ContainerLabelSummary.itemTag(rule, false);
+				}
+				yield ContainerLabelSummary.itemTag(rule, !validateContents(inventory, rule).compatible());
+			}
+			case WHITELIST -> ContainerLabelSummary.whitelist(rule, !validateContents(inventory, rule).compatible());
+		};
 	}
 
 	public static ContentValidation validateContents(Inventory inventory, ContainerLabelRule rule) {

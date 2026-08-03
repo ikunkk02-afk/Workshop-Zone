@@ -55,7 +55,7 @@ public record WorkshopLabelEditorLayout(
 		);
 
 		List<WorkshopSidebarMetrics.Rect> actionButtons = arrangeActions(
-			content.left(), content.bottom(), content.width(), actionCount, layoutMode
+			content.left(), content.bottom(), content.width(), content.height(), actionCount, layoutMode
 		);
 		int actionTop = actionButtons.stream().mapToInt(WorkshopSidebarMetrics.Rect::top).min().orElse(content.bottom());
 		WorkshopSidebarMetrics.Rect actionArea = new WorkshopSidebarMetrics.Rect(
@@ -108,6 +108,7 @@ public record WorkshopLabelEditorLayout(
 		int left,
 		int contentBottom,
 		int width,
+		int contentHeight,
 		int count,
 		WorkshopSidebarLayoutMode mode
 	) {
@@ -116,7 +117,8 @@ public record WorkshopLabelEditorLayout(
 			addEqualRow(result, left, contentBottom - BUTTON_HEIGHT, width, count);
 			return result;
 		}
-		if (mode == WorkshopSidebarLayoutMode.COMPACT) {
+		if (mode == WorkshopSidebarLayoutMode.COMPACT
+			|| mode == WorkshopSidebarLayoutMode.NARROW && count > 4 && contentHeight < 290) {
 			int columns = Math.min(2, count);
 			int rows = (count + columns - 1) / columns;
 			int top = contentBottom - rows * BUTTON_HEIGHT - Math.max(0, rows - 1) * GAP;

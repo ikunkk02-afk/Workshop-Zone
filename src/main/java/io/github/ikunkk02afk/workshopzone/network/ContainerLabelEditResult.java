@@ -9,6 +9,7 @@ import java.util.Optional;
 
 public enum ContainerLabelEditResult {
 	SUCCESS("success", "message.workshop_zone.label.success"),
+	WHITELIST_SUCCESS("whitelist_success", "message.workshop_zone.label.whitelist_success"),
 	CLEARED("cleared", "message.workshop_zone.label.cleared"),
 	INVALID_SESSION("invalid_session", "message.workshop_zone.label.invalid_session"),
 	STALE_SNAPSHOT("stale_snapshot", "message.workshop_zone.label.stale"),
@@ -21,6 +22,11 @@ public enum ContainerLabelEditResult {
 	TAG_UNAVAILABLE("tag_unavailable", "message.workshop_zone.label.tag_unavailable"),
 	NO_MATCHING_TAGS("no_matching_tags", "message.workshop_zone.label.no_matching_tags"),
 	TOO_MANY_CANDIDATES("too_many_candidates", "message.workshop_zone.label.too_many_candidates"),
+	WHITELIST_EMPTY("whitelist_empty", "message.workshop_zone.label.whitelist_empty"),
+	WHITELIST_TOO_LARGE("whitelist_too_large", "message.workshop_zone.label.whitelist_too_large"),
+	DUPLICATE_ENTRY("duplicate_entry", "message.workshop_zone.label.duplicate_entry"),
+	INVALID_ENTRY("invalid_entry", "message.workshop_zone.label.invalid_entry"),
+	INCOMPATIBLE_WHITELIST_CONTENTS("incompatible_whitelist_contents", "message.workshop_zone.label.incompatible_whitelist_contents"),
 	INCOMPATIBLE_CONTENTS("incompatible_contents", "message.workshop_zone.label.incompatible_contents"),
 	LABEL_CONFLICT("label_conflict", "message.workshop_zone.label.conflict"),
 	DENIED("denied", "message.workshop_zone.label.denied"),

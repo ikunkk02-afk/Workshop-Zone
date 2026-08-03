@@ -2,6 +2,7 @@ package io.github.ikunkk02afk.workshopzone.label;
 
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelOperation;
+import io.github.ikunkk02afk.workshopzone.network.RequestContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
 import io.github.ikunkk02afk.workshopzone.session.WorkshopSession;
@@ -74,13 +75,13 @@ public final class ContainerLabelGameTests implements FabricGameTest {
 	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
-	public void itemTagPersistsThroughVersionTwoBlockEntityNbt(TestContext context) {
+	public void itemTagPersistsThroughVersionThreeBlockEntityNbt(TestContext context) {
 		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
 		ContainerLabelService.applyAtomically(container, logsRule());
 		BlockEntity original = container.members().getFirst();
 		NbtCompound nbt = original.createNbt(context.getWorld().getRegistryManager());
 		NbtCompound label = nbt.getCompound(ContainerLabelData.NBT_KEY);
-		context.assertEquals(2, label.getInt("version"), "Item-tag label should save as version 2");
+		context.assertEquals(3, label.getInt("version"), "Item-tag label should save as version 3");
 		context.assertEquals("minecraft:logs", label.getString("tag"), "NBT should store only the tag id");
 		context.assertTrue(!label.contains("item"), "Item-tag NBT must not carry an exact item field");
 		ChestBlockEntity reloaded = new ChestBlockEntity(original.getPos(), original.getCachedState());
@@ -414,7 +415,7 @@ public final class ContainerLabelGameTests implements FabricGameTest {
 		context.assertTrue(holder.workshopZone$canInsert(new ItemStack(Items.IRON_INGOT)), "Migrated exact label should accept iron");
 		context.assertTrue(!holder.workshopZone$canInsert(new ItemStack(Items.GOLD_INGOT)), "Migrated exact label should still reject gold");
 		NbtCompound migrated = reloaded.createNbt(context.getWorld().getRegistryManager());
-		context.assertEquals(2, migrated.getCompound(ContainerLabelData.NBT_KEY).getInt("version"), "Next save should use version 2");
+		context.assertEquals(3, migrated.getCompound(ContainerLabelData.NBT_KEY).getInt("version"), "Next save should use version 3");
 		context.complete();
 	}
 
@@ -476,7 +477,7 @@ public final class ContainerLabelGameTests implements FabricGameTest {
 		LogicalContainer container = tagLabeledChest(context, ItemTags.LOGS.id());
 		container.inventory().setStack(0, new ItemStack(Items.OAK_PLANKS));
 		context.assertTrue(ContainerLabelService.summarize(container).contentConflict(), "Existing non-member should mark a content conflict");
-		context.assertTrue(!container.inventory().isValid(1, new ItemStack(Items.OAK_LOG)), "Content conflict should block new input");
+		context.assertTrue(container.inventory().isValid(1, new ItemStack(Items.OAK_LOG)), "Matching input should remain allowed during a content conflict");
 		container.inventory().removeStack(0);
 		context.assertTrue(!ContainerLabelService.summarize(container).contentConflict(), "Conflict should clear lazily after removal");
 		context.assertTrue(container.inventory().isValid(1, new ItemStack(Items.OAK_LOG)), "Matching input should resume after conflict clears");
@@ -559,6 +560,370 @@ public final class ContainerLabelGameTests implements FabricGameTest {
 		context.assertEquals(before, after, "Reload cache clear should resolve from current tag bindings again");
 		context.assertTrue(logsRule().canInsert(new ItemStack(Items.CHERRY_LOG)), "Membership should use the live tag binding after cache clear");
 		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void whitelistAllowsExactItemsAndLogs(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		context.assertTrue(container.inventory().isValid(0, new ItemStack(Items.IRON_INGOT)), "Whitelist should allow iron");
+		context.assertTrue(container.inventory().isValid(0, new ItemStack(Items.GOLD_INGOT)), "Whitelist should allow gold");
+		context.assertTrue(container.inventory().isValid(0, new ItemStack(Items.OAK_LOG)), "Whitelist should allow oak logs through the tag");
+		context.assertTrue(container.inventory().isValid(0, new ItemStack(Items.SPRUCE_LOG)), "Whitelist should allow spruce logs through the tag");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void whitelistRejectsCopperPlanksAndBread(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		context.assertTrue(!container.inventory().isValid(0, new ItemStack(Items.COPPER_INGOT)), "Copper should not match the whitelist");
+		context.assertTrue(!container.inventory().isValid(0, new ItemStack(Items.OAK_PLANKS)), "Planks should not match the logs entry");
+		context.assertTrue(!container.inventory().isValid(0, new ItemStack(Items.BREAD)), "Bread should not match the whitelist");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void manualWhitelistInputUsesSharedSlotRule(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		ServerPlayerEntity player = openContainer(context, container);
+		player.currentScreenHandler.setCursorStack(new ItemStack(Items.BREAD));
+		player.currentScreenHandler.onSlotClick(0, 0, SlotActionType.PICKUP, player);
+		context.assertTrue(container.inventory().isEmpty(), "Manual bread input should be rejected");
+		player.currentScreenHandler.setCursorStack(new ItemStack(Items.IRON_INGOT));
+		player.currentScreenHandler.onSlotClick(0, 0, SlotActionType.PICKUP, player);
+		context.assertEquals(Items.IRON_INGOT, container.inventory().getStack(0).getItem(), "Manual iron input should succeed");
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void shiftMoveWhitelistInputAcceptsGoldAndRejectsBread(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		ServerPlayerEntity player = openContainer(context, container);
+		GenericContainerScreenHandler handler = (GenericContainerScreenHandler)player.currentScreenHandler;
+		int sourceSlot = -1;
+		for (int index = 0; index < handler.slots.size(); index++) {
+			if (handler.slots.get(index).inventory == player.getInventory() && handler.slots.get(index).getIndex() == 0) {
+				sourceSlot = index;
+				break;
+			}
+		}
+		context.assertTrue(sourceSlot >= 0, "Player hotbar slot should be present");
+		player.getInventory().setStack(0, new ItemStack(Items.GOLD_INGOT, 4));
+		handler.quickMove(player, sourceSlot);
+		context.assertEquals(4, container.inventory().count(Items.GOLD_INGOT), "Shift-click should insert whitelisted gold");
+		player.getInventory().setStack(0, new ItemStack(Items.BREAD, 4));
+		handler.quickMove(player, sourceSlot);
+		context.assertEquals(4, player.getInventory().getStack(0).getCount(), "Rejected bread should remain in its source slot");
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void hopperWhitelistInputAcceptsLogAndLeavesPlank(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		ItemStack logRemainder = HopperBlockEntity.transfer(null, container.inventory(), new ItemStack(Items.BIRCH_LOG), null);
+		ItemStack plankRemainder = HopperBlockEntity.transfer(null, container.inventory(), new ItemStack(Items.BIRCH_PLANKS), null);
+		context.assertTrue(logRemainder.isEmpty(), "Hopper should insert a whitelisted log");
+		context.assertEquals(1, plankRemainder.getCount(), "Hopper should retain a non-whitelisted plank");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void transferApiWhitelistInputIsTransactional(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		InventoryStorage storage = InventoryStorage.of(container.inventory(), null);
+		try (Transaction transaction = Transaction.openOuter()) {
+			context.assertEquals(1L, storage.insert(ItemVariant.of(Items.IRON_INGOT), 1, transaction), "Transfer API should accept whitelist iron");
+			context.assertEquals(0L, storage.insert(ItemVariant.of(Items.BREAD), 1, transaction), "Transfer API should reject bread");
+			transaction.commit();
+		}
+		context.assertEquals(1, container.inventory().count(Items.IRON_INGOT), "Committed iron should be present");
+		context.assertEquals(0, container.inventory().count(Items.BREAD), "Rejected bread should be absent");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void whitelistNeverRestrictsExtraction(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		container.inventory().setStack(0, new ItemStack(Items.BREAD));
+		context.assertEquals(Items.BREAD, container.inventory().removeStack(0).getItem(), "Existing non-matching contents must remain extractable");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void whitelistValidationChecksEverySlotAndRuleShrink(TestContext context) {
+		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
+		container.inventory().setStack(0, new ItemStack(Items.IRON_INGOT));
+		container.inventory().setStack(26, new ItemStack(Items.GOLD_INGOT));
+		context.assertTrue(ContainerLabelService.validateContents(container.inventory(), whitelistRule()).compatible(), "Broad whitelist should accept all contents");
+		ContainerLabelRule narrowed = ContainerLabelRule.whitelist(List.of(ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot"))));
+		ContainerLabelService.ContentValidation validation = ContainerLabelService.validateContents(container.inventory(), narrowed);
+		context.assertTrue(!validation.compatible(), "Shrinking the whitelist should revalidate existing gold");
+		context.assertEquals(1, validation.mismatchSlotCount(), "The far slot mismatch should be counted");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void doubleChestWhitelistOrderNormalizesAndSynchronizes(TestContext context) {
+		LogicalContainer container = doubleChest(context);
+		ContainerLabelRule reversed = ContainerLabelRule.whitelist(List.of(
+			ContainerLabelEntry.itemTag(ItemTags.LOGS.id()),
+			ContainerLabelEntry.item(Identifier.ofVanilla("gold_ingot")),
+			ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot"))
+		));
+		container.holders().get(0).workshopZone$setLabelRule(whitelistRule());
+		container.holders().get(1).workshopZone$setLabelRule(reversed);
+		context.assertEquals(whitelistRule(), reversed, "Entry order must not affect rule equality");
+		context.assertTrue(!ContainerLabelService.summarize(container).ruleConflict(), "Normalized equal white lists should merge");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void differentDoubleChestWhitelistsConflict(TestContext context) {
+		LogicalContainer container = doubleChest(context);
+		container.holders().get(0).workshopZone$setLabelRule(whitelistRule());
+		container.holders().get(1).workshopZone$setLabelRule(ContainerLabelRule.whitelist(List.of(
+			ContainerLabelEntry.item(Identifier.ofVanilla("diamond"))
+		)));
+		context.assertTrue(ContainerLabelService.summarize(container).ruleConflict(), "Different whitelist sets should conflict");
+		context.assertTrue(!container.inventory().isValid(0, new ItemStack(Items.IRON_INGOT)), "Rule conflict should block input");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void missingWhitelistTagKeepsExactEntryUsable(TestContext context) {
+		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
+		ContainerLabelRule partial = ContainerLabelRule.whitelist(List.of(
+			ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot")),
+			ContainerLabelEntry.itemTag(Identifier.of("workshop_zone_gametest", "removed_tag"))
+		));
+		ContainerLabelService.applyAtomically(container, partial);
+		ContainerLabelSummary summary = ContainerLabelService.summarize(container);
+		context.assertEquals(1, summary.unavailableEntryCount(), "One missing tag should be reported");
+		context.assertTrue(!summary.unavailable(), "A valid exact entry should keep the whitelist usable");
+		context.assertTrue(container.inventory().isValid(0, new ItemStack(Items.IRON_INGOT)), "Valid exact entry should still allow iron");
+		context.assertTrue(!container.inventory().isValid(0, new ItemStack(Items.GOLD_INGOT)), "Missing tag must not match arbitrary items");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void whitelistPersistsAsVersionThreeNbt(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		BlockEntity original = container.members().getFirst();
+		NbtCompound nbt = original.createNbt(context.getWorld().getRegistryManager());
+		NbtCompound label = nbt.getCompound(ContainerLabelData.NBT_KEY);
+		context.assertEquals(3, label.getInt("version"), "Whitelist should use NBT version 3");
+		context.assertEquals("workshop_zone:whitelist", label.getString("mode"), "Whitelist mode id should be stable");
+		context.assertEquals(3, label.getList("entries", net.minecraft.nbt.NbtElement.COMPOUND_TYPE).size(), "All normalized entries should persist");
+		ChestBlockEntity reloaded = new ChestBlockEntity(original.getPos(), original.getCachedState());
+		reloaded.read(nbt, context.getWorld().getRegistryManager());
+		context.assertEquals(whitelistRule(), ((ContainerLabelHolder)reloaded).workshopZone$getLabelRule(), "Reloaded whitelist should match");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void serverAcceptsCompatibleWhitelistAndRejectsIncompatibleContents(TestContext context) {
+		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
+		container.inventory().setStack(0, new ItemStack(Items.OAK_LOG));
+		ServerPlayerEntity player = openContainer(context, container);
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, container.representativePosition(), WorkshopBlockType.CHEST);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+		List<ContainerLabelEntry> entries = whitelistRule().entries();
+		ContainerLabelEditResult saved = manager.updateContainerLabel(player, new UpdateContainerLabelPayload(
+			session.sessionId(), session.revision(), session.syncId(), session.openedEntryPosition(),
+			ContainerLabelOperation.SET_WHITELIST, Optional.empty(), entries
+		));
+		context.assertEquals(ContainerLabelEditResult.WHITELIST_SUCCESS, saved, "Compatible whitelist should save");
+		WorkshopSession updated = manager.get(player.getUuid()).orElseThrow();
+		container.inventory().setStack(1, new ItemStack(Items.BREAD));
+		ContainerLabelEditResult rejected = manager.updateContainerLabel(player, new UpdateContainerLabelPayload(
+			updated.sessionId(), updated.revision(), updated.syncId(), updated.openedEntryPosition(),
+			ContainerLabelOperation.SET_WHITELIST, Optional.empty(), List.of(ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot")))
+		));
+		context.assertEquals(ContainerLabelEditResult.INCOMPATIBLE_WHITELIST_CONTENTS, rejected, "Incompatible shrink should be rejected");
+		context.assertEquals(whitelistRule(), container.holders().getFirst().workshopZone$getLabelRule(), "Rejected edit must preserve the previous rule");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void whitelistAlwaysAllowsEmptyStacks(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		context.assertTrue(container.inventory().isValid(0, ItemStack.EMPTY), "Empty stacks should always be accepted");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void doubleChestStoresWhitelistOnBothHalves(TestContext context) {
+		LogicalContainer container = doubleChest(context);
+		context.assertTrue(ContainerLabelService.applyAtomically(container, whitelistRule()), "Whitelist should apply atomically");
+		context.assertTrue(container.holders().stream().allMatch(holder -> holder.workshopZone$getLabelRule().equals(whitelistRule())), "Both halves should store the normalized whitelist");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void compatibleOneSidedDoubleChestWhitelistSynchronizes(TestContext context) {
+		LogicalContainer container = doubleChest(context);
+		container.inventory().setStack(30, new ItemStack(Items.OAK_LOG));
+		container.holders().getFirst().workshopZone$setLabelRule(whitelistRule());
+		ContainerLabelSummary summary = ContainerLabelService.reconcile(container);
+		context.assertEquals(ContainerLabelMode.WHITELIST, summary.mode(), "Compatible one-sided whitelist should reconcile");
+		context.assertTrue(container.holders().stream().allMatch(holder -> holder.workshopZone$getLabelRule().equals(whitelistRule())), "Both halves should synchronize");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void incompatibleOneSidedDoubleChestWhitelistConflicts(TestContext context) {
+		LogicalContainer container = doubleChest(context);
+		container.inventory().setStack(30, new ItemStack(Items.BREAD));
+		container.holders().getFirst().workshopZone$setLabelRule(whitelistRule());
+		context.assertTrue(ContainerLabelService.reconcile(container).ruleConflict(), "Incompatible one-sided whitelist should conflict");
+		context.assertEquals(ContainerLabelRule.NONE, container.holders().get(1).workshopZone$getLabelRule(), "Conflict must not overwrite the unlabeled half");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void fullyUnavailableWhitelistBlocksInputButAllowsExtraction(TestContext context) {
+		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
+		container.inventory().setStack(0, new ItemStack(Items.STONE));
+		ContainerLabelRule unavailable = ContainerLabelRule.whitelist(List.of(
+			ContainerLabelEntry.itemTag(Identifier.of("workshop_zone_gametest", "removed_tag"))
+		));
+		ContainerLabelService.applyAtomically(container, unavailable);
+		context.assertTrue(ContainerLabelService.summarize(container).unavailable(), "All-missing whitelist should be unavailable");
+		context.assertTrue(!container.inventory().isValid(1, new ItemStack(Items.STONE)), "All-missing whitelist should block new input");
+		context.assertEquals(Items.STONE, container.inventory().removeStack(0).getItem(), "Extraction should remain allowed");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void whitelistContentConflictStillAllowsMatchingInput(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		container.inventory().setStack(0, new ItemStack(Items.BREAD));
+		context.assertTrue(ContainerLabelService.summarize(container).contentConflict(), "Bread should mark a content conflict");
+		context.assertTrue(container.inventory().isValid(1, new ItemStack(Items.IRON_INGOT)), "Matching iron should remain insertable");
+		context.assertTrue(!container.inventory().isValid(1, new ItemStack(Items.COPPER_INGOT)), "Non-matching copper should remain rejected");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void serverRejectsDuplicateWhitelistEntries(TestContext context) {
+		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
+		ServerPlayerEntity player = openContainer(context, container);
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, container.representativePosition(), WorkshopBlockType.CHEST);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+		ContainerLabelEntry iron = ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot"));
+		ContainerLabelEditResult result = manager.updateContainerLabel(player, new UpdateContainerLabelPayload(
+			session.sessionId(), session.revision(), session.syncId(), session.openedEntryPosition(),
+			ContainerLabelOperation.SET_WHITELIST, Optional.empty(), List.of(iron, iron)
+		));
+		context.assertEquals(ContainerLabelEditResult.DUPLICATE_ENTRY, result, "Duplicate entries should be rejected");
+		context.assertEquals(ContainerLabelRule.NONE, container.holders().getFirst().workshopZone$getLabelRule(), "Rejected duplicate payload must not mutate the rule");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void serverRejectsNewUnavailableWhitelistTag(TestContext context) {
+		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
+		ServerPlayerEntity player = openContainer(context, container);
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, container.representativePosition(), WorkshopBlockType.CHEST);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+		ContainerLabelEditResult result = manager.updateContainerLabel(player, new UpdateContainerLabelPayload(
+			session.sessionId(), session.revision(), session.syncId(), session.openedEntryPosition(),
+			ContainerLabelOperation.SET_WHITELIST, Optional.empty(), List.of(
+				ContainerLabelEntry.itemTag(Identifier.of("example", "missing_tag"))
+			)
+		));
+		context.assertEquals(ContainerLabelEditResult.INVALID_ENTRY, result, "New missing whitelist tags should be rejected");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void labelDetailsQueryAcceptsOnlyCurrentOpenedContainer(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		ServerPlayerEntity player = openContainer(context, container);
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, container.representativePosition(), WorkshopBlockType.CHEST);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+		ContainerLabelEditResult result = manager.requestContainerLabelDetails(player, new RequestContainerLabelDetailsPayload(
+			1, session.sessionId(), session.revision(), session.syncId(), session.openedEntryPosition()
+		));
+		context.assertEquals(ContainerLabelEditResult.SUCCESS, result, "Current opened container details should be queryable");
+		ContainerLabelEditResult throttled = manager.requestContainerLabelDetails(player, new RequestContainerLabelDetailsPayload(
+			2, session.sessionId(), session.revision(), session.syncId(), session.openedEntryPosition()
+		));
+		context.assertEquals(ContainerLabelEditResult.COOLDOWN, throttled, "Repeated detail queries in the same tick should be throttled");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void labelDetailsQueryRejectsOtherCoordinates(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		ServerPlayerEntity player = openContainer(context, container);
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, container.representativePosition(), WorkshopBlockType.CHEST);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+		ContainerLabelEditResult result = manager.requestContainerLabelDetails(player, new RequestContainerLabelDetailsPayload(
+			2, session.sessionId(), session.revision(), session.syncId(), session.openedEntryPosition().add(2, 0, 0)
+		));
+		context.assertEquals(ContainerLabelEditResult.INVALID_SESSION, result, "Details query must not redirect to another coordinate");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void exactAndWhitelistRulesInDoubleChestConflict(TestContext context) {
+		LogicalContainer container = doubleChest(context);
+		container.holders().get(0).workshopZone$setLabelRule(ironRule());
+		container.holders().get(1).workshopZone$setLabelRule(whitelistRule());
+		context.assertTrue(ContainerLabelService.summarize(container).ruleConflict(), "Exact and whitelist modes must remain distinct");
+		context.complete();
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void workshopDepositMovesItemsIntoWhitelistContainer(TestContext context) {
+		LogicalContainer container = whitelistLabeledChest(context);
+		ServerPlayerEntity player = openContainer(context, container);
+		player.getInventory().setStack(9, new ItemStack(Items.IRON_INGOT, 3));
+		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
+		manager.open(player, container.representativePosition(), WorkshopBlockType.CHEST);
+		WorkshopSession session = manager.get(player.getUuid()).orElseThrow();
+		var result = new io.github.ikunkk02afk.workshopzone.deposit.WorkshopDepositService(manager).deposit(
+			player, new io.github.ikunkk02afk.workshopzone.network.DepositWorkshopItemsPayload(
+				7, session.sessionId(), session.revision(), session.syncId(), false
+			)
+		);
+		context.assertEquals(io.github.ikunkk02afk.workshopzone.deposit.WorkshopDepositResult.SUCCESS, result.result(), "Whitelist deposit should succeed");
+		context.assertEquals(3, container.inventory().count(Items.IRON_INGOT), "All matching iron should reach the whitelist chest");
+		context.assertTrue(player.getInventory().getStack(9).isEmpty(), "Moved source stack should be empty");
+		manager.clear(player, false);
+		player.closeHandledScreen();
+		context.complete();
+	}
+
+	private static LogicalContainer whitelistLabeledChest(TestContext context) {
+		LogicalContainer container = placeAndResolve(context, Blocks.CHEST.getDefaultState());
+		ContainerLabelService.applyAtomically(container, whitelistRule());
+		return container;
+	}
+
+	private static ContainerLabelRule whitelistRule() {
+		return ContainerLabelRule.whitelist(List.of(
+			ContainerLabelEntry.item(Identifier.ofVanilla("iron_ingot")),
+			ContainerLabelEntry.item(Identifier.ofVanilla("gold_ingot")),
+			ContainerLabelEntry.itemTag(ItemTags.LOGS.id())
+		));
 	}
 
 	private static LogicalContainer labeledChest(TestContext context) {

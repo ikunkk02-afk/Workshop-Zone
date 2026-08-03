@@ -109,7 +109,8 @@ public final class WorkshopDepositService {
 			foundMatchingItems = true;
 			matching.sort(Comparator.comparing(
 				destination -> new WorkshopDepositPlanner.Target(
-					destination.rule().mode(), destination.representativePosition(), destination.distanceSquared(),
+					destination.matchKind(sourceSnapshot).orElseThrow(),
+					destination.representativePosition(), destination.distanceSquared(),
 					destination.scanIndex(), destination.hasMergeableStack(sourceSnapshot)
 				), WorkshopDepositPlanner.TARGET_ORDER
 			));

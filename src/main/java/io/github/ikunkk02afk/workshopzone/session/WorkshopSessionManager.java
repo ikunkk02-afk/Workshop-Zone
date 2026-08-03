@@ -4,6 +4,8 @@ import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.api.WorkshopRemoteOpenCallback;
 import io.github.ikunkk02afk.workshopzone.api.ContainerLabelEditCallback;
 import io.github.ikunkk02afk.workshopzone.deposit.WorkshopDepositService;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntry;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntryType;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelMode;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelFeedback;
 import io.github.ikunkk02afk.workshopzone.label.ContainerItemTags;
@@ -12,10 +14,13 @@ import io.github.ikunkk02afk.workshopzone.label.ContainerLabelService;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary;
 import io.github.ikunkk02afk.workshopzone.label.LogicalContainer;
 import io.github.ikunkk02afk.workshopzone.label.WorkshopContainerResolver;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsEntry;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelOperation;
 import io.github.ikunkk02afk.workshopzone.network.DepositWorkshopItemsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
+import io.github.ikunkk02afk.workshopzone.network.RequestContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestItemTagCandidatesPayload;
 import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworking;
@@ -59,6 +64,7 @@ import net.minecraft.util.math.ChunkSectionPos;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +77,7 @@ public final class WorkshopSessionManager {
 	public static final int OPEN_COOLDOWN_TICKS = 5;
 	public static final int LABEL_EDIT_COOLDOWN_TICKS = 10;
 	public static final int TAG_QUERY_COOLDOWN_TICKS = 10;
+	public static final int LABEL_DETAILS_COOLDOWN_TICKS = 5;
 	public static final double MAX_CENTER_DISTANCE_SQUARED = 64.0;
 	public static final double MAX_REMOTE_OPEN_DISTANCE_SQUARED = 64.0;
 
@@ -83,6 +90,7 @@ public final class WorkshopSessionManager {
 	private final Map<UUID, Long> lastOpenRequestTicks = new HashMap<>();
 	private final Map<UUID, Long> lastLabelEditTicks = new HashMap<>();
 	private final Map<UUID, Long> lastTagQueryTicks = new HashMap<>();
+	private final Map<UUID, Long> lastLabelDetailsTicks = new HashMap<>();
 	private boolean eventsRegistered;
 	private int cleanupTicker;
 
@@ -110,6 +118,7 @@ public final class WorkshopSessionManager {
 			lastOpenRequestTicks.remove(handler.player.getUuid());
 			lastLabelEditTicks.remove(handler.player.getUuid());
 			lastTagQueryTicks.remove(handler.player.getUuid());
+			lastLabelDetailsTicks.remove(handler.player.getUuid());
 			depositService.clear(handler.player);
 			ContainerLabelFeedback.clear(handler.player.getUuid());
 		});
@@ -119,6 +128,82 @@ public final class WorkshopSessionManager {
 			}
 		});
 		ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
+	}
+
+	public ContainerLabelEditResult requestContainerLabelDetails(
+		ServerPlayerEntity player,
+		RequestContainerLabelDetailsPayload payload
+	) {
+		WorkshopSession session = sessions.get(player.getUuid()).orElse(null);
+		if (session == null || session.sessionId() != payload.sessionId()) {
+			return sendLabelDetailsResult(player, payload, ContainerLabelEditResult.INVALID_SESSION, null, null);
+		}
+		if (session.revision() != payload.revision()) {
+			return sendLabelDetailsResult(player, payload, ContainerLabelEditResult.STALE_SNAPSHOT, session, null);
+		}
+		if (session.syncId() != payload.syncId() || player.currentScreenHandler.syncId != payload.syncId()
+			|| !session.dimension().equals(player.getServerWorld().getRegistryKey())
+			|| !session.openedEntryPosition().equals(payload.openedEntryPosition())
+			|| !session.openedBlockType().isContainer()
+			|| !matchesHandler(session.openedBlockType(), player.currentScreenHandler)
+			|| !(player.currentScreenHandler instanceof GenericContainerScreenHandler handler)
+			|| validate(player, session) != WorkshopSessionValidation.VALID) {
+			return sendLabelDetailsResult(player, payload, ContainerLabelEditResult.INVALID_SESSION, session, null);
+		}
+		long now = player.getServerWorld().getTime();
+		long previous = lastLabelDetailsTicks.getOrDefault(
+			player.getUuid(), now - LABEL_DETAILS_COOLDOWN_TICKS
+		);
+		lastLabelDetailsTicks.put(player.getUuid(), now);
+		if (now - previous < LABEL_DETAILS_COOLDOWN_TICKS) {
+			return sendLabelDetailsResult(player, payload, ContainerLabelEditResult.COOLDOWN, session, null);
+		}
+		WorkshopContainerResolver.Result resolved = WorkshopContainerResolver.resolve(
+			player.getServerWorld(), session.openedEntryPosition()
+		);
+		if (!resolved.successful() || !resolved.container().matchesInventory(handler.getInventory())) {
+			return sendLabelDetailsResult(player, payload, ContainerLabelEditResult.NOT_CONTAINER, session, null);
+		}
+		return sendLabelDetailsResult(player, payload, ContainerLabelEditResult.SUCCESS, session, resolved.container());
+	}
+
+	private ContainerLabelEditResult sendLabelDetailsResult(
+		ServerPlayerEntity player,
+		RequestContainerLabelDetailsPayload request,
+		ContainerLabelEditResult result,
+		WorkshopSession session,
+		LogicalContainer container
+	) {
+		ContainerLabelMode mode = ContainerLabelMode.NONE;
+		List<ContainerLabelDetailsEntry> entries = List.of();
+		int unavailableCount = 0;
+		boolean contentConflict = false;
+		boolean ruleConflict = false;
+		if (result == ContainerLabelEditResult.SUCCESS && container != null) {
+			ContainerLabelSummary summary = ContainerLabelService.summarize(container);
+			ruleConflict = summary.ruleConflict();
+			contentConflict = summary.contentConflict();
+			if (!ruleConflict) {
+				ContainerLabelRule rule = container.holders().getFirst().workshopZone$getLabelRule();
+				mode = rule.mode();
+				entries = rule.entries().stream().map(entry -> {
+					if (entry.type() == ContainerLabelEntryType.ITEM) {
+						return new ContainerLabelDetailsEntry(entry, false, Optional.of(entry.valueId()));
+					}
+					boolean unavailable = ContainerItemTags.availability(entry.valueId()) != ContainerItemTags.Availability.AVAILABLE;
+					return new ContainerLabelDetailsEntry(
+						entry, unavailable, unavailable ? Optional.empty() : ContainerItemTags.representativeItemId(entry.valueId())
+					);
+				}).toList();
+				unavailableCount = (int)entries.stream().filter(ContainerLabelDetailsEntry::unavailable).count();
+			}
+		}
+		long revision = session == null ? request.revision() : session.revision();
+		WorkshopNetworking.sendContainerLabelDetails(player, new ContainerLabelDetailsPayload(
+			request.requestId(), request.sessionId(), revision, request.syncId(), request.openedEntryPosition(),
+			result, mode, entries, unavailableCount, contentConflict, ruleConflict
+		));
+		return result;
 	}
 
 	public ContainerLabelEditResult requestItemTagCandidates(
@@ -222,25 +307,51 @@ public final class WorkshopSessionManager {
 				return labelReject(player, payload, ContainerLabelEditResult.INVALID_ITEM);
 			}
 			requestedRule = ContainerLabelRule.exactItem(item);
-		} else {
+		} else if (payload.operation() == ContainerLabelOperation.SET_ITEM_TAG) {
 			Identifier tagId = payload.tagId().orElse(null);
-			if (tagId == null) {
-				return labelReject(player, payload, ContainerLabelEditResult.INVALID_TAG);
-			}
-			ContainerItemTags.Availability availability = ContainerItemTags.availability(tagId);
-			if (availability == ContainerItemTags.Availability.UNAVAILABLE) {
-				return labelReject(player, payload, ContainerLabelEditResult.TAG_UNAVAILABLE);
-			}
-			if (availability == ContainerItemTags.Availability.EMPTY) {
-				return labelReject(player, payload, ContainerLabelEditResult.EMPTY_TAG);
+			ContainerLabelEditResult tagValidation = validateNewTag(tagId);
+			if (tagValidation != ContainerLabelEditResult.SUCCESS) {
+				return labelReject(player, payload, tagValidation);
 			}
 			requestedRule = ContainerLabelRule.itemTag(tagId);
+		} else {
+			List<ContainerLabelEntry> entries = payload.whitelistEntries();
+			if (entries.isEmpty()) {
+				return labelReject(player, payload, ContainerLabelEditResult.WHITELIST_EMPTY);
+			}
+			if (entries.size() > ContainerLabelRule.MAX_ENTRIES) {
+				return labelReject(player, payload, ContainerLabelEditResult.WHITELIST_TOO_LARGE);
+			}
+			if (new HashSet<>(entries).size() != entries.size()) {
+				return labelReject(player, payload, ContainerLabelEditResult.DUPLICATE_ENTRY);
+			}
+			for (ContainerLabelEntry entry : entries) {
+				if (entry.type() == ContainerLabelEntryType.ITEM) {
+					Item item = Registries.ITEM.getOrEmpty(entry.valueId()).orElse(null);
+					if (item == null || item == Items.AIR) {
+						return labelReject(player, payload, ContainerLabelEditResult.INVALID_ENTRY);
+					}
+				} else {
+					ContainerLabelEditResult tagValidation = validateNewTag(entry.valueId());
+					if (tagValidation != ContainerLabelEditResult.SUCCESS) {
+						return labelReject(player, payload, ContainerLabelEditResult.INVALID_ENTRY);
+					}
+				}
+			}
+			try {
+				requestedRule = ContainerLabelRule.whitelist(entries);
+			} catch (IllegalArgumentException exception) {
+				return labelReject(player, payload, ContainerLabelEditResult.INVALID_ENTRY);
+			}
 		}
 		if (requestedRule.mode() != ContainerLabelMode.NONE) {
 			ContainerLabelService.ContentValidation contents = ContainerLabelService.validateContents(container.inventory(), requestedRule);
 			if (!contents.compatible()) {
 				return labelReject(
-					player, payload, ContainerLabelEditResult.INCOMPATIBLE_CONTENTS,
+					player, payload,
+					requestedRule.mode() == ContainerLabelMode.WHITELIST
+						? ContainerLabelEditResult.INCOMPATIBLE_WHITELIST_CONTENTS
+						: ContainerLabelEditResult.INCOMPATIBLE_CONTENTS,
 					contents.firstMismatchItemId(), contents.mismatchSlotCount()
 				);
 			}
@@ -276,11 +387,24 @@ public final class WorkshopSessionManager {
 		WorkshopSession updated = session.labelEdited(result);
 		sessions.put(updated);
 		WorkshopNetworking.sendSnapshot(player, updated);
-		ContainerLabelEditResult success = requestedRule.mode() == ContainerLabelMode.NONE
-			? ContainerLabelEditResult.CLEARED
-			: ContainerLabelEditResult.SUCCESS;
+		ContainerLabelEditResult success = switch (requestedRule.mode()) {
+			case NONE -> ContainerLabelEditResult.CLEARED;
+			case WHITELIST -> ContainerLabelEditResult.WHITELIST_SUCCESS;
+			case EXACT_ITEM, ITEM_TAG -> ContainerLabelEditResult.SUCCESS;
+		};
 		WorkshopNetworking.sendLabelResult(player, updated.sessionId(), updated.syncId(), success, Optional.empty(), 0);
 		return success;
+	}
+
+	private static ContainerLabelEditResult validateNewTag(Identifier tagId) {
+		if (tagId == null) {
+			return ContainerLabelEditResult.INVALID_TAG;
+		}
+		return switch (ContainerItemTags.availability(tagId)) {
+			case AVAILABLE -> ContainerLabelEditResult.SUCCESS;
+			case EMPTY -> ContainerLabelEditResult.EMPTY_TAG;
+			case UNAVAILABLE -> ContainerLabelEditResult.TAG_UNAVAILABLE;
+		};
 	}
 
 	private ContainerLabelEditResult labelReject(

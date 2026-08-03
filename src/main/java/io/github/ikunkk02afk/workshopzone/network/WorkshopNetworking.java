@@ -34,11 +34,13 @@ public final class WorkshopNetworking {
 		PayloadTypeRegistry.playS2C().register(WorkshopSnapshotPayload.ID, WorkshopSnapshotPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ClearWorkshopSessionPayload.ID, ClearWorkshopSessionPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ContainerLabelEditResultPayload.ID, ContainerLabelEditResultPayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(ContainerLabelDetailsPayload.ID, ContainerLabelDetailsPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(ItemTagCandidatesPayload.ID, ItemTagCandidatesPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(WorkshopDepositResultPayload.ID, WorkshopDepositResultPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopRefreshPayload.ID, RequestWorkshopRefreshPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(OpenWorkshopTargetPayload.ID, OpenWorkshopTargetPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(UpdateContainerLabelPayload.ID, UpdateContainerLabelPayload.CODEC);
+		PayloadTypeRegistry.playC2S().register(RequestContainerLabelDetailsPayload.ID, RequestContainerLabelDetailsPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestItemTagCandidatesPayload.ID, RequestItemTagCandidatesPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(DepositWorkshopItemsPayload.ID, DepositWorkshopItemsPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(
@@ -56,6 +58,10 @@ public final class WorkshopNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(
 			UpdateContainerLabelPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().updateContainerLabel(context.player(), payload)
+		);
+		ServerPlayNetworking.registerGlobalReceiver(
+			RequestContainerLabelDetailsPayload.ID,
+			(payload, context) -> WorkshopSessionManager.getInstance().requestContainerLabelDetails(context.player(), payload)
 		);
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestItemTagCandidatesPayload.ID,
@@ -126,6 +132,10 @@ public final class WorkshopNetworking {
 	}
 
 	public static void sendItemTagCandidates(ServerPlayerEntity player, ItemTagCandidatesPayload payload) {
+		ServerPlayNetworking.send(player, payload);
+	}
+
+	public static void sendContainerLabelDetails(ServerPlayerEntity player, ContainerLabelDetailsPayload payload) {
 		ServerPlayNetworking.send(player, payload);
 	}
 

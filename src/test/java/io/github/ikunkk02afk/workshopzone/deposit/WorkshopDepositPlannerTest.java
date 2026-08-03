@@ -27,6 +27,21 @@ class WorkshopDepositPlannerTest {
 	}
 
 	@Test
+	void whitelistMatchKindsFollowDedicatedContainerPriority() {
+		WorkshopDepositPlanner.Target singleExact = target(WorkshopDepositMatchKind.SINGLE_EXACT, new BlockPos(8, 64, 0), 64, 4, false);
+		WorkshopDepositPlanner.Target whitelistExact = target(WorkshopDepositMatchKind.WHITELIST_EXACT, new BlockPos(1, 64, 0), 1, 0, true);
+		WorkshopDepositPlanner.Target singleTag = target(WorkshopDepositMatchKind.SINGLE_ITEM_TAG, new BlockPos(1, 64, 1), 1, 0, true);
+		WorkshopDepositPlanner.Target whitelistTag = target(WorkshopDepositMatchKind.WHITELIST_ITEM_TAG, new BlockPos(1, 64, 2), 1, 0, true);
+		List<WorkshopDepositPlanner.Target> targets = new ArrayList<>(List.of(
+			whitelistTag, singleTag, whitelistExact, singleExact
+		));
+
+		targets.sort(WorkshopDepositPlanner.TARGET_ORDER);
+
+		assertEquals(List.of(singleExact, whitelistExact, singleTag, whitelistTag), targets);
+	}
+
+	@Test
 	void mergeableThenDistanceThenScanOrderThenPositionAreStable() {
 		WorkshopDepositPlanner.Target mergeable = target(ContainerLabelMode.EXACT_ITEM, new BlockPos(7, 64, 0), 49, 9, true);
 		WorkshopDepositPlanner.Target near = target(ContainerLabelMode.EXACT_ITEM, new BlockPos(2, 64, 0), 4, 8, false);
@@ -57,8 +72,17 @@ class WorkshopDepositPlannerTest {
 			ContainerLabelMode.ITEM_TAG, Optional.empty(), Optional.of(Identifier.ofVanilla("logs")),
 			Optional.of(Identifier.ofVanilla("oak_log")), true, false
 		);
+		ContainerLabelSummary partialWhitelist = new ContainerLabelSummary(
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(),
+			Optional.of(Identifier.ofVanilla("iron_ingot")), 2, 1, false, false
+		);
+		ContainerLabelSummary unavailableWhitelist = new ContainerLabelSummary(
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(), Optional.empty(), 1, 1, false, true
+		);
 
 		assertTrue(WorkshopDepositPlanner.isEligible(exact));
+		assertTrue(WorkshopDepositPlanner.isEligible(partialWhitelist));
+		assertFalse(WorkshopDepositPlanner.isEligible(unavailableWhitelist));
 		assertFalse(WorkshopDepositPlanner.isEligible(ContainerLabelSummary.NONE));
 		assertFalse(WorkshopDepositPlanner.isEligible(ContainerLabelSummary.CONFLICT));
 		assertFalse(WorkshopDepositPlanner.isEligible(unavailable));
@@ -69,5 +93,11 @@ class WorkshopDepositPlannerTest {
 		ContainerLabelMode mode, BlockPos position, double distanceSquared, int scanIndex, boolean mergeable
 	) {
 		return new WorkshopDepositPlanner.Target(mode, position, distanceSquared, scanIndex, mergeable);
+	}
+
+	private static WorkshopDepositPlanner.Target target(
+		WorkshopDepositMatchKind matchKind, BlockPos position, double distanceSquared, int scanIndex, boolean mergeable
+	) {
+		return new WorkshopDepositPlanner.Target(matchKind, position, distanceSquared, scanIndex, mergeable);
 	}
 }

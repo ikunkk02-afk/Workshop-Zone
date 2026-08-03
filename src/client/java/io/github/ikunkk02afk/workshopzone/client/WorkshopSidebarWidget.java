@@ -3,15 +3,20 @@ package io.github.ikunkk02afk.workshopzone.client;
 import io.github.ikunkk02afk.workshopzone.mixin.client.HandledScreenAccessor;
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.label.ContainerItemTags;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntry;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntryType;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelMode;
 import io.github.ikunkk02afk.workshopzone.label.ContainerTagCandidate;
 import io.github.ikunkk02afk.workshopzone.label.ContainerTagPreset;
 import io.github.ikunkk02afk.workshopzone.network.OpenWorkshopTargetPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestWorkshopRefreshPayload;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsEntry;
+import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelOperation;
 import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
 import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
+import io.github.ikunkk02afk.workshopzone.network.RequestContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestItemTagCandidatesPayload;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
@@ -45,6 +50,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private static final int ROW_HEIGHT = 24;
 	private static final int BUTTON_SIZE = 16;
 	private static final int TAG_ROW_HEIGHT = 22;
+	private static final int WHITELIST_ROW_HEIGHT = 26;
 	private static final long PENDING_TIMEOUT_MILLIS = 3_000L;
 	private static final double MAX_VISUAL_OPEN_DISTANCE_SQUARED = 64.0;
 
@@ -76,6 +82,19 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private long observedTagResponseSequence;
 	private Text labelResult;
 	private long observedLabelResultSequence;
+	private List<ContainerLabelEntry> whitelistEntries = List.of();
+	private List<ContainerLabelDetailsEntry> labelDetails = List.of();
+	private int selectedWhitelistIndex = -1;
+	private int whitelistScrollOffset;
+	private boolean whitelistTagPicker;
+	private boolean whitelistDirty;
+	private boolean whitelistSavePending;
+	private boolean labelDetailsPending;
+	private long pendingLabelDetailsRequestId;
+	private long pendingLabelDetailsRevision = -1;
+	private long loadedLabelDetailsRevision = -1;
+	private long nextLabelDetailsRequestAt;
+	private long observedLabelDetailsSequence;
 	private boolean depositPending;
 	private long pendingDepositRequestId;
 	private long pendingDepositSessionId;
@@ -110,6 +129,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		updateDepositResult(snapshot);
 		if (labelEditor && snapshot != null) {
 			updateTagQueryResult(snapshot);
+			updateLabelDetails(snapshot);
 		}
 		TextRenderer textRenderer = MinecraftClient.getInstance().textRenderer;
 		if (!updateBounds(snapshot, textRenderer)) {
@@ -328,8 +348,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		if (hasLabel && inside(mouseX, mouseY, labelX, getY() + 4, BUTTON_SIZE, BUTTON_SIZE)) {
 			labelEditor = true;
 			ClientWorkshopEntry opened = openedEntry(snapshot);
-			labelEditorMode = opened != null && opened.labelSummary().mode() == ContainerLabelMode.ITEM_TAG
-				? ContainerLabelMode.ITEM_TAG : ContainerLabelMode.EXACT_ITEM;
+			labelEditorMode = opened == null || opened.labelSummary().mode() == ContainerLabelMode.NONE
+				? ContainerLabelMode.EXACT_ITEM : opened.labelSummary().mode();
 			candidateItemId = null;
 			candidateItem = null;
 			candidateIcon = ItemStack.EMPTY;
@@ -340,11 +360,23 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			commonTagChoices = ContainerItemTags.availablePresets();
 			queriedTagChoices = List.of();
 			tagScrollOffset = 0;
+			whitelistEntries = List.of();
+			labelDetails = List.of();
+			selectedWhitelistIndex = -1;
+			whitelistScrollOffset = 0;
+			whitelistTagPicker = false;
+			whitelistDirty = false;
+			whitelistSavePending = false;
+			labelDetailsPending = false;
+			loadedLabelDetailsRevision = -1;
+			nextLabelDetailsRequestAt = 0;
 			tagQueryPending = false;
 			queriedItemId = null;
 			observedTagResponseSequence = ClientItemTagState.responseSequence();
 			observedLabelResultSequence = ClientContainerLabelState.resultSequence();
+			observedLabelDetailsSequence = ClientContainerLabelDetailsState.responseSequence();
 			labelResult = null;
+			requestLabelDetails(snapshot);
 			return;
 		}
 		if (labelEditor && supportsLabelEditor(snapshot)) {
@@ -374,11 +406,21 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			return false;
 		}
 		if (labelEditor) {
-			if (labelEditorMode != ContainerLabelMode.ITEM_TAG || labelLayout == null
-				|| !labelLayout.listArea().contains(mouseX, mouseY)) {
+			if (labelLayout == null || !labelLayout.listArea().contains(mouseX, mouseY)) {
 				return false;
 			}
 			int viewport = labelLayout.listArea().height();
+			if (labelEditorMode == ContainerLabelMode.WHITELIST && !whitelistTagPicker) {
+				int maxScroll = Math.max(0, whitelistEntries.size() * WHITELIST_ROW_HEIGHT - viewport);
+				whitelistScrollOffset = MathHelper.clamp(
+					whitelistScrollOffset - (int)Math.signum(verticalAmount) * WHITELIST_ROW_HEIGHT, 0, maxScroll
+				);
+				return true;
+			}
+			if (labelEditorMode != ContainerLabelMode.ITEM_TAG
+				&& !(labelEditorMode == ContainerLabelMode.WHITELIST && whitelistTagPicker)) {
+				return false;
+			}
 			int maxScroll = Math.max(0, combinedTagChoices().size() * TAG_ROW_HEIGHT - viewport);
 			tagScrollOffset = MathHelper.clamp(
 				tagScrollOffset - (int)Math.signum(verticalAmount) * TAG_ROW_HEIGHT, 0, maxScroll
@@ -426,7 +468,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		setHeight(panel.height());
 		if (!sidebarMetrics.collapsed() && labelEditor) {
 			labelLayout = WorkshopLabelEditorLayout.calculate(
-				panel, HEADER_HEIGHT, 2, 4, editorStatusLineCount(renderer, snapshot)
+				panel, HEADER_HEIGHT, 3, labelEditorMode == ContainerLabelMode.WHITELIST ? 7 : 4,
+				editorStatusLineCount(renderer, snapshot)
 			);
 		} else {
 			labelLayout = null;
@@ -435,20 +478,24 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	}
 
 	private int preferredPanelWidth(TextRenderer renderer) {
-		int modeWidth = Math.max(
-			renderer.getWidth(Text.translatable("gui.workshop_zone.label.mode_exact")),
-			renderer.getWidth(Text.translatable("gui.workshop_zone.label.mode_tag"))
-		);
+		int modeWidth = List.of(
+			Text.translatable("gui.workshop_zone.label.mode_exact"),
+			Text.translatable("gui.workshop_zone.label.mode_tag"),
+			Text.translatable("gui.workshop_zone.label.mode_whitelist")
+		).stream().mapToInt(renderer::getWidth).max().orElse(0);
 		int actionWidth = List.of(
 			Text.translatable("gui.workshop_zone.label.use_cursor"),
 			Text.translatable("gui.workshop_zone.label.find_categories"),
+			Text.translatable("gui.workshop_zone.label.add_cursor_item"),
+			Text.translatable("gui.workshop_zone.label.add_selected_tag"),
+			Text.translatable("gui.workshop_zone.label.remove_selected"),
 			Text.translatable("gui.workshop_zone.label.save"),
 			Text.translatable("gui.workshop_zone.label.clear"),
 			Text.translatable("gui.workshop_zone.label.cancel")
 		).stream().mapToInt(renderer::getWidth).max().orElse(0);
 		int translatedPreference = Math.max(
 			WorkshopSidebarMetrics.PREFERRED_PANEL_WIDTH,
-			Math.max(modeWidth * 2 + 18, actionWidth * 2 + 18)
+			Math.max(modeWidth * 3 + 22, actionWidth * 2 + 18)
 		);
 		return Math.min(WorkshopSidebarMetrics.MAX_PANEL_WIDTH, translatedPreference);
 	}
@@ -466,10 +513,22 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		if (labelPending) {
 			return Text.translatable("gui.workshop_zone.label.pending");
 		}
+		if (labelDetailsPending) {
+			return Text.translatable("gui.workshop_zone.label.loading_details");
+		}
 		if (tagQueryPending) {
 			return Text.translatable("gui.workshop_zone.label.finding_categories");
 		}
-		return labelResult;
+		if (labelResult != null) {
+			return labelResult;
+		}
+		if (labelEditorMode == ContainerLabelMode.WHITELIST && whitelistDirty) {
+			return Text.translatable("gui.workshop_zone.label.unsaved_changes");
+		}
+		long unavailable = labelDetails.stream().filter(ContainerLabelDetailsEntry::unavailable).count();
+		return labelEditorMode == ContainerLabelMode.WHITELIST && unavailable > 0
+			? Text.translatable("gui.workshop_zone.label.unavailable_entries", unavailable)
+			: null;
 	}
 
 	private void drawSmallButton(DrawContext context, int x, int y, String label, int mouseX, int mouseY) {
@@ -492,7 +551,19 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			String.format(Locale.ROOT, "%.1f", Math.sqrt(entry.distanceSquared()))
 		).formatted(Formatting.GRAY));
 		lines.add(Text.translatable(entry.type().translationKey()).formatted(Formatting.GRAY));
-		if (entry.labelSummary().unavailable()) {
+		if (entry.labelSummary().mode() == ContainerLabelMode.WHITELIST) {
+			lines.add(Text.translatable(
+				"gui.workshop_zone.label.whitelist_count", entry.labelSummary().whitelistEntryCount()
+			).formatted(Formatting.GOLD));
+			if (entry.labelSummary().unavailableEntryCount() > 0) {
+				lines.add(Text.translatable(
+					"gui.workshop_zone.label.unavailable_entries", entry.labelSummary().unavailableEntryCount()
+				).formatted(Formatting.RED));
+			}
+			if (entry.labelSummary().contentConflict()) {
+				lines.add(Text.translatable("gui.workshop_zone.label.content_conflict").formatted(Formatting.RED));
+			}
+		} else if (entry.labelSummary().unavailable()) {
 			lines.add(Text.translatable("gui.workshop_zone.label.tag_unavailable").formatted(Formatting.RED));
 			entry.labelSummary().itemTagId().ifPresent(tagId -> lines.add(
 				Text.translatable("gui.workshop_zone.label.tag_id", "#" + tagId).formatted(Formatting.GRAY)
@@ -607,10 +678,14 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 
 		List<Text> modeTexts = List.of(
 			Text.translatable("gui.workshop_zone.label.mode_exact"),
-			Text.translatable("gui.workshop_zone.label.mode_tag")
+			Text.translatable("gui.workshop_zone.label.mode_tag"),
+			Text.translatable("gui.workshop_zone.label.mode_whitelist")
+		);
+		List<ContainerLabelMode> modes = List.of(
+			ContainerLabelMode.EXACT_ITEM, ContainerLabelMode.ITEM_TAG, ContainerLabelMode.WHITELIST
 		);
 		for (int index = 0; index < modeTexts.size(); index++) {
-			ContainerLabelMode mode = index == 0 ? ContainerLabelMode.EXACT_ITEM : ContainerLabelMode.ITEM_TAG;
+			ContainerLabelMode mode = modes.get(index);
 			drawTextButton(
 				context, labelLayout.modeButtons().get(index), modeTexts.get(index),
 				!labelPending && labelEditorMode != mode, mouseX, mouseY
@@ -624,8 +699,10 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 
 		if (labelEditorMode == ContainerLabelMode.EXACT_ITEM) {
 			renderExactCandidate(context, renderer);
-		} else {
+		} else if (labelEditorMode == ContainerLabelMode.ITEM_TAG || whitelistTagPicker) {
 			renderTagChoices(context, renderer, mouseX, mouseY);
+		} else {
+			renderWhitelistEntries(context, renderer, mouseX, mouseY);
 		}
 
 		boolean ruleConflict = opened != null && opened.labelSummary().ruleConflict();
@@ -644,7 +721,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				!labelPending,
 				!labelPending
 			);
-		} else {
+		} else if (labelEditorMode == ContainerLabelMode.ITEM_TAG) {
 			actionTexts = List.of(
 				Text.translatable("gui.workshop_zone.label.find_categories"),
 				Text.translatable("gui.workshop_zone.label.save"),
@@ -654,6 +731,26 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			actionEnabled = List.of(
 				!labelPending && !tagQueryPending && !getCursorStack().isEmpty(),
 				!labelPending && selectedTagId != null && !ruleConflict,
+				!labelPending,
+				!labelPending
+			);
+		} else {
+			boolean full = whitelistEntries.size() >= io.github.ikunkk02afk.workshopzone.label.ContainerLabelRule.MAX_ENTRIES;
+			actionTexts = List.of(
+				Text.translatable("gui.workshop_zone.label.add_cursor_item"),
+				Text.translatable("gui.workshop_zone.label.find_categories"),
+				Text.translatable("gui.workshop_zone.label.add_selected_tag"),
+				Text.translatable("gui.workshop_zone.label.remove_selected"),
+				Text.translatable("gui.workshop_zone.label.save"),
+				Text.translatable("gui.workshop_zone.label.clear"),
+				Text.translatable("gui.workshop_zone.label.cancel")
+			);
+			actionEnabled = List.of(
+				!labelPending && !full && !getCursorStack().isEmpty(),
+				!labelPending && !tagQueryPending && !getCursorStack().isEmpty(),
+				!labelPending && !full && whitelistTagPicker && selectedTagId != null,
+				!labelPending && !whitelistTagPicker && selectedWhitelistIndex >= 0 && selectedWhitelistIndex < whitelistEntries.size(),
+				!labelPending && !labelDetailsPending && !whitelistEntries.isEmpty() && !ruleConflict,
 				!labelPending,
 				!labelPending
 			);
@@ -668,9 +765,10 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		Text state = editorStateText();
 		boolean stateTruncated = state != null && drawWrappedText(
 			context, renderer, state, labelLayout.statusArea(), 3,
-			labelPending || tagQueryPending ? 0xFFFF80 : 0xFFAAAA
+			labelPending || labelDetailsPending || tagQueryPending ? 0xFFFF80 : 0xFFAAAA
 		);
-		if (state == null && labelEditorMode == ContainerLabelMode.ITEM_TAG && labelLayout.statusArea().height() > 0) {
+		if (state == null && (labelEditorMode == ContainerLabelMode.ITEM_TAG || whitelistTagPicker)
+			&& labelLayout.statusArea().height() > 0) {
 			Text listName = queriedTagChoices.isEmpty()
 				? Text.translatable("gui.workshop_zone.label.common_categories")
 				: Text.translatable("gui.workshop_zone.label.item_tag");
@@ -718,6 +816,85 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		);
 	}
 
+	private void renderWhitelistEntries(DrawContext context, TextRenderer renderer, int mouseX, int mouseY) {
+		WorkshopSidebarMetrics.Rect list = labelLayout.listArea();
+		int viewport = list.height();
+		int maxScroll = Math.max(0, whitelistEntries.size() * WHITELIST_ROW_HEIGHT - viewport);
+		whitelistScrollOffset = MathHelper.clamp(whitelistScrollOffset, 0, maxScroll);
+		int hoveredIndex = WorkshopSidebarLayout.rowAt(
+			mouseX, mouseY, list.left(), list.right(), list.top(), list.bottom(),
+			WHITELIST_ROW_HEIGHT, whitelistScrollOffset, whitelistEntries.size()
+		);
+		context.enableScissor(list.left(), list.top(), list.right(), list.bottom());
+		if (whitelistEntries.isEmpty()) {
+			context.drawCenteredTextWithShadow(
+				renderer, Text.translatable("gui.workshop_zone.label.whitelist_empty"),
+				list.left() + list.width() / 2, list.top() + 4, 0x777777
+			);
+		}
+		for (int index = 0; index < whitelistEntries.size(); index++) {
+			ContainerLabelEntry entry = whitelistEntries.get(index);
+			int rowY = list.top() + index * WHITELIST_ROW_HEIGHT - whitelistScrollOffset;
+			if (rowY + WHITELIST_ROW_HEIGHT <= list.top() || rowY >= list.bottom()) {
+				continue;
+			}
+			boolean selected = index == selectedWhitelistIndex;
+			boolean hovered = index == hoveredIndex;
+			boolean unavailable = labelDetails.stream().anyMatch(detail -> detail.entry().equals(entry) && detail.unavailable());
+			context.fill(
+				list.left(), rowY, list.right(), rowY + WHITELIST_ROW_HEIGHT - 1,
+				selected ? 0xCC405A36 : hovered ? 0xCC3A3A48 : 0xAA292934
+			);
+			ItemStack icon;
+			Text name;
+			String idText;
+			if (entry.type() == ContainerLabelEntryType.ITEM) {
+				Item item = Registries.ITEM.getOrEmpty(entry.valueId()).orElse(net.minecraft.item.Items.BARRIER);
+				icon = new ItemStack(item);
+				name = item.getName();
+				idText = entry.valueId().toString();
+			} else {
+				Identifier representative = labelDetails.stream().filter(detail -> detail.entry().equals(entry))
+					.findFirst().flatMap(ContainerLabelDetailsEntry::representativeItemId)
+					.orElseGet(() -> ContainerItemTags.representativeItemId(entry.valueId()).orElse(null));
+				icon = iconForTag(entry.valueId(), representative);
+				name = ContainerTagPreset.displayName(entry.valueId());
+				idText = "#" + entry.valueId();
+			}
+			context.drawItem(icon, list.left() + 3, rowY + 5);
+			int textLeft = list.left() + 23;
+			int textWidth = Math.max(0, list.right() - (unavailable ? 17 : 7) - textLeft);
+			context.drawTextWithShadow(renderer, WorkshopTextLayout.ellipsize(renderer, name, textWidth), textLeft, rowY + 3,
+				unavailable ? 0xFF7777 : 0xFFFFFF);
+			context.drawTextWithShadow(renderer, WorkshopTextLayout.ellipsize(renderer, Text.literal(idText), textWidth),
+				textLeft, rowY + 14, 0x888888);
+			if (unavailable) {
+				context.drawCenteredTextWithShadow(renderer, "!", list.right() - 10, rowY + 8, 0xFF5555);
+			}
+		}
+		context.disableScissor();
+		if (maxScroll > 0 && viewport > 0) {
+			int trackHeight = Math.max(1, viewport - 4);
+			int thumbHeight = Math.min(trackHeight, Math.max(12, trackHeight * viewport / Math.max(1, whitelistEntries.size() * WHITELIST_ROW_HEIGHT)));
+			int thumbY = list.top() + 2 + (trackHeight - thumbHeight) * whitelistScrollOffset / maxScroll;
+			context.fill(list.right() - 3, list.top() + 2, list.right() - 1, list.top() + 2 + trackHeight, 0x88484852);
+			context.fill(list.right() - 3, thumbY, list.right() - 1, thumbY + thumbHeight, 0xFFE0E0E0);
+		}
+		if (hoveredIndex >= 0 && hoveredIndex < whitelistEntries.size()) {
+			ContainerLabelEntry hovered = whitelistEntries.get(hoveredIndex);
+			boolean unavailable = labelDetails.stream().anyMatch(detail -> detail.entry().equals(hovered) && detail.unavailable());
+			List<Text> tooltip = new ArrayList<>();
+			tooltip.add(hovered.type() == ContainerLabelEntryType.ITEM
+				? Registries.ITEM.getOrEmpty(hovered.valueId()).orElse(net.minecraft.item.Items.BARRIER).getName()
+				: ContainerTagPreset.displayName(hovered.valueId()));
+			tooltip.add(Text.literal((hovered.type() == ContainerLabelEntryType.ITEM_TAG ? "#" : "") + hovered.valueId()).formatted(Formatting.GRAY));
+			if (unavailable) {
+				tooltip.add(Text.translatable("gui.workshop_zone.label.tag_unavailable").formatted(Formatting.RED));
+			}
+			context.drawTooltip(renderer, tooltip, mouseX, mouseY);
+		}
+	}
+
 	private void handleLabelEditorClick(ClientWorkshopSnapshot snapshot, double mouseX, double mouseY) {
 		if (labelPending || labelLayout == null) {
 			return;
@@ -725,16 +902,27 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		if (labelLayout.modeButtons().get(0).contains(mouseX, mouseY)) {
 			labelEditorMode = ContainerLabelMode.EXACT_ITEM;
 			labelResult = null;
+			whitelistTagPicker = false;
 			tagScrollOffset = 0;
 			return;
 		}
 		if (labelLayout.modeButtons().get(1).contains(mouseX, mouseY)) {
 			labelEditorMode = ContainerLabelMode.ITEM_TAG;
 			labelResult = null;
+			whitelistTagPicker = false;
 			tagScrollOffset = 0;
 			return;
 		}
-		if (labelEditorMode == ContainerLabelMode.ITEM_TAG) {
+		if (labelLayout.modeButtons().get(2).contains(mouseX, mouseY)) {
+			labelEditorMode = ContainerLabelMode.WHITELIST;
+			labelResult = null;
+			whitelistTagPicker = false;
+			selectedWhitelistIndex = -1;
+			whitelistScrollOffset = 0;
+			return;
+		}
+		if (labelEditorMode == ContainerLabelMode.ITEM_TAG
+			|| labelEditorMode == ContainerLabelMode.WHITELIST && whitelistTagPicker) {
 			List<ContainerTagCandidate> choices = combinedTagChoices();
 			WorkshopSidebarMetrics.Rect list = labelLayout.listArea();
 			int index = WorkshopSidebarLayout.rowAt(
@@ -749,6 +937,18 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				return;
 			}
 		}
+		if (labelEditorMode == ContainerLabelMode.WHITELIST && !whitelistTagPicker) {
+			WorkshopSidebarMetrics.Rect list = labelLayout.listArea();
+			int index = WorkshopSidebarLayout.rowAt(
+				mouseX, mouseY, list.left(), list.right(), list.top(), list.bottom(),
+				WHITELIST_ROW_HEIGHT, whitelistScrollOffset, whitelistEntries.size()
+			);
+			if (index >= 0 && index < whitelistEntries.size()) {
+				selectedWhitelistIndex = index;
+				labelResult = null;
+				return;
+			}
+		}
 
 		int button = editorButtonAt(mouseX, mouseY);
 		if (button < 0) {
@@ -756,11 +956,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		}
 		ClientWorkshopEntry opened = openedEntry(snapshot);
 		boolean ruleConflict = opened != null && opened.labelSummary().ruleConflict();
-		if (button == 2) {
-			sendLabelEdit(snapshot, ContainerLabelOperation.CLEAR, null);
-		} else if (button == 3) {
-			closeLabelEditor();
-		} else if (labelEditorMode == ContainerLabelMode.EXACT_ITEM) {
+		if (labelEditorMode == ContainerLabelMode.EXACT_ITEM) {
 			if (button == 0) {
 				ItemStack cursor = getCursorStack();
 				if (!cursor.isEmpty()) {
@@ -771,12 +967,108 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				}
 			} else if (button == 1 && candidateItemId != null && !ruleConflict) {
 				sendLabelEdit(snapshot, ContainerLabelOperation.SET_EXACT_ITEM, candidateItemId);
+			} else if (button == 2) {
+				sendLabelEdit(snapshot, ContainerLabelOperation.CLEAR, null);
+			} else if (button == 3) {
+				closeLabelEditor();
 			}
-		} else if (button == 0) {
-			requestTagCandidates(snapshot);
-		} else if (button == 1 && selectedTagId != null && !ruleConflict) {
-			sendLabelEdit(snapshot, ContainerLabelOperation.SET_ITEM_TAG, selectedTagId);
+		} else if (labelEditorMode == ContainerLabelMode.ITEM_TAG) {
+			if (button == 0) {
+				requestTagCandidates(snapshot);
+			} else if (button == 1 && selectedTagId != null && !ruleConflict) {
+				sendLabelEdit(snapshot, ContainerLabelOperation.SET_ITEM_TAG, selectedTagId);
+			} else if (button == 2) {
+				sendLabelEdit(snapshot, ContainerLabelOperation.CLEAR, null);
+			} else if (button == 3) {
+				closeLabelEditor();
+			}
+		} else {
+			handleWhitelistAction(snapshot, button, ruleConflict);
 		}
+	}
+
+	private void handleWhitelistAction(ClientWorkshopSnapshot snapshot, int button, boolean ruleConflict) {
+		switch (button) {
+			case 0 -> {
+				ItemStack cursor = getCursorStack();
+				if (!cursor.isEmpty()) {
+					addWhitelistEntry(ContainerLabelEntry.item(Registries.ITEM.getId(cursor.getItem())));
+				}
+			}
+			case 1 -> {
+				whitelistTagPicker = true;
+				selectedTagId = null;
+				tagScrollOffset = 0;
+				requestTagCandidates(snapshot);
+			}
+			case 2 -> {
+				if (whitelistTagPicker && selectedTagId != null) {
+					addWhitelistEntry(ContainerLabelEntry.itemTag(selectedTagId));
+					whitelistTagPicker = false;
+					selectedTagId = null;
+				}
+			}
+			case 3 -> {
+				if (!whitelistTagPicker && selectedWhitelistIndex >= 0 && selectedWhitelistIndex < whitelistEntries.size()) {
+					ContainerLabelEntry removed = whitelistEntries.get(selectedWhitelistIndex);
+					List<ContainerLabelEntry> updated = new ArrayList<>(whitelistEntries);
+					updated.remove(selectedWhitelistIndex);
+					whitelistEntries = List.copyOf(updated);
+					labelDetails = labelDetails.stream().filter(detail -> !detail.entry().equals(removed)).toList();
+					selectedWhitelistIndex = -1;
+					whitelistDirty = true;
+					labelResult = null;
+				}
+			}
+			case 4 -> {
+				if (!labelDetailsPending && !ruleConflict && !whitelistEntries.isEmpty()) {
+					sendWhitelistEdit(snapshot);
+				}
+			}
+			case 5 -> {
+				whitelistEntries = List.of();
+				labelDetails = List.of();
+				selectedWhitelistIndex = -1;
+				whitelistDirty = false;
+				loadedLabelDetailsRevision = -1;
+				sendLabelEdit(snapshot, ContainerLabelOperation.CLEAR, null);
+			}
+			case 6 -> closeLabelEditor();
+			default -> {
+			}
+		}
+	}
+
+	private void addWhitelistEntry(ContainerLabelEntry entry) {
+		if (whitelistEntries.contains(entry)) {
+			labelResult = Text.translatable("message.workshop_zone.label.duplicate_entry");
+			return;
+		}
+		if (whitelistEntries.size() >= io.github.ikunkk02afk.workshopzone.label.ContainerLabelRule.MAX_ENTRIES) {
+			labelResult = Text.translatable("gui.workshop_zone.label.whitelist_full");
+			return;
+		}
+		List<ContainerLabelEntry> updated = new ArrayList<>(whitelistEntries);
+		updated.add(entry);
+		updated.sort(ContainerLabelEntry.ORDER);
+		whitelistEntries = List.copyOf(updated);
+		selectedWhitelistIndex = whitelistEntries.indexOf(entry);
+		whitelistDirty = true;
+		labelResult = null;
+	}
+
+	private void sendWhitelistEdit(ClientWorkshopSnapshot snapshot) {
+		if (!ClientPlayNetworking.canSend(UpdateContainerLabelPayload.ID)) {
+			return;
+		}
+		labelPending = true;
+		whitelistSavePending = true;
+		labelResult = null;
+		observedLabelResultSequence = ClientContainerLabelState.resultSequence();
+		ClientPlayNetworking.send(new UpdateContainerLabelPayload(
+			snapshot.sessionId(), snapshot.revision(), snapshot.syncId(), snapshot.openedEntryPosition(),
+			ContainerLabelOperation.SET_WHITELIST, java.util.Optional.empty(), whitelistEntries
+		));
 	}
 
 	private void renderTagChoices(DrawContext context, TextRenderer renderer, int mouseX, int mouseY) {
@@ -849,14 +1141,17 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		if (opened == null || opened.labelSummary().mode() == ContainerLabelMode.NONE && !opened.labelSummary().conflict()) {
 			return Text.translatable("gui.workshop_zone.label.none");
 		}
+		if (opened.labelSummary().ruleConflict()) {
+			return Text.translatable("gui.workshop_zone.label.conflict");
+		}
+		if (opened.labelSummary().mode() == ContainerLabelMode.WHITELIST) {
+			return Text.translatable("gui.workshop_zone.label.whitelist_count", opened.labelSummary().whitelistEntryCount());
+		}
 		if (opened.labelSummary().unavailable()) {
 			return Text.translatable("gui.workshop_zone.label.tag_unavailable");
 		}
 		if (opened.labelSummary().contentConflict()) {
 			return Text.translatable("gui.workshop_zone.label.content_conflict");
-		}
-		if (opened.labelSummary().ruleConflict()) {
-			return Text.translatable("gui.workshop_zone.label.conflict");
 		}
 		if (opened.labelSummary().mode() == ContainerLabelMode.ITEM_TAG) {
 			return ContainerTagPreset.displayName(opened.labelSummary().itemTagId().orElseThrow());
@@ -916,6 +1211,56 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		};
 	}
 
+	private void requestLabelDetails(ClientWorkshopSnapshot snapshot) {
+		if (labelDetailsPending || Util.getMeasuringTimeMs() < nextLabelDetailsRequestAt
+			|| !ClientPlayNetworking.canSend(RequestContainerLabelDetailsPayload.ID)) {
+			return;
+		}
+		pendingLabelDetailsRequestId = System.nanoTime() & Long.MAX_VALUE;
+		pendingLabelDetailsRevision = snapshot.revision();
+		labelDetailsPending = true;
+		observedLabelDetailsSequence = ClientContainerLabelDetailsState.responseSequence();
+		ClientPlayNetworking.send(new RequestContainerLabelDetailsPayload(
+			pendingLabelDetailsRequestId, snapshot.sessionId(), snapshot.revision(), snapshot.syncId(), snapshot.openedEntryPosition()
+		));
+	}
+
+	private void updateLabelDetails(ClientWorkshopSnapshot snapshot) {
+		if (!labelPending && !labelDetailsPending && loadedLabelDetailsRevision != snapshot.revision()) {
+			requestLabelDetails(snapshot);
+		}
+		long sequence = ClientContainerLabelDetailsState.responseSequence();
+		if (!labelDetailsPending || sequence == observedLabelDetailsSequence) {
+			return;
+		}
+		observedLabelDetailsSequence = sequence;
+		ContainerLabelDetailsPayload response = ClientContainerLabelDetailsState.lastResponse();
+		if (response == null || response.requestId() != pendingLabelDetailsRequestId
+			|| response.sessionId() != snapshot.sessionId() || response.syncId() != snapshot.syncId()
+			|| !response.openedEntryPosition().equals(snapshot.openedEntryPosition())) {
+			return;
+		}
+		if (response.result() == io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult.SUCCESS
+			&& response.revision() != pendingLabelDetailsRevision) {
+			return;
+		}
+		labelDetailsPending = false;
+		if (response.result() != io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult.SUCCESS) {
+			nextLabelDetailsRequestAt = Util.getMeasuringTimeMs()
+				+ (response.result() == io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult.COOLDOWN ? 300L : 1_000L);
+			labelResult = Text.translatable(response.result().translationKey());
+			return;
+		}
+		nextLabelDetailsRequestAt = 0;
+		loadedLabelDetailsRevision = response.revision();
+		labelDetails = response.entries();
+		if (response.mode() == ContainerLabelMode.WHITELIST && !whitelistDirty) {
+			whitelistEntries = response.entries().stream().map(ContainerLabelDetailsEntry::entry).toList();
+			selectedWhitelistIndex = -1;
+			whitelistScrollOffset = 0;
+		}
+	}
+
 	private int editorButtonAt(double mouseX, double mouseY) {
 		if (labelLayout == null) {
 			return -1;
@@ -936,6 +1281,16 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		selectedTagId = null;
 		selectedTagIcon = ItemStack.EMPTY;
 		queriedTagChoices = List.of();
+		whitelistEntries = List.of();
+		labelDetails = List.of();
+		selectedWhitelistIndex = -1;
+		whitelistScrollOffset = 0;
+		whitelistTagPicker = false;
+		whitelistDirty = false;
+		whitelistSavePending = false;
+		labelDetailsPending = false;
+		loadedLabelDetailsRevision = -1;
+		nextLabelDetailsRequestAt = 0;
 		tagQueryPending = false;
 		queriedItemId = null;
 		labelResult = null;
@@ -966,6 +1321,14 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		ContainerLabelEditResultPayload result = ClientContainerLabelState.lastResult();
 		if (result != null && result.sessionId() == snapshot.sessionId() && result.syncId() == snapshot.syncId()) {
 			labelPending = false;
+			if (whitelistSavePending) {
+				if (result.result() == io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult.WHITELIST_SUCCESS
+					|| result.result() == io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult.SUCCESS) {
+					whitelistDirty = false;
+					loadedLabelDetailsRevision = -1;
+				}
+				whitelistSavePending = false;
+			}
 			labelResult = Text.translatable(result.result().translationKey());
 		}
 	}

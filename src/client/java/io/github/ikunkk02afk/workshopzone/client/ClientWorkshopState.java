@@ -143,6 +143,7 @@ public final class ClientWorkshopState {
 		ICON_CACHE.clear();
 		LABEL_ICON_CACHE.clear();
 		ClientContainerLabelState.reset();
+		ClientContainerLabelDetailsState.reset();
 		ClientItemTagState.reset();
 		ClientDepositState.reset();
 	}
