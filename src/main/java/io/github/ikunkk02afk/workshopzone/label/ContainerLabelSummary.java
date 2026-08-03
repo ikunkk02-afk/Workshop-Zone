@@ -2,24 +2,29 @@ package io.github.ikunkk02afk.workshopzone.label;
 
 import net.minecraft.util.Identifier;
 
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Function;
 
 public record ContainerLabelSummary(
 	ContainerLabelMode mode,
 	Optional<Identifier> exactItemId,
 	Optional<Identifier> itemTagId,
-	Optional<Identifier> representativeItemId,
+	List<Identifier> previewItemIds,
 	int whitelistEntryCount,
 	int unavailableEntryCount,
 	boolean conflict,
 	boolean unavailable
 ) {
+	public static final int MAX_PREVIEW_ITEMS = 4;
+	private static final Identifier AIR_ID = Identifier.ofVanilla("air");
 	public static final ContainerLabelSummary NONE = new ContainerLabelSummary(
-		ContainerLabelMode.NONE, Optional.empty(), Optional.empty(), Optional.empty(), 0, 0, false, false
+		ContainerLabelMode.NONE, Optional.empty(), Optional.empty(), List.of(), 0, 0, false, false
 	);
 	public static final ContainerLabelSummary CONFLICT = new ContainerLabelSummary(
-		ContainerLabelMode.NONE, Optional.empty(), Optional.empty(), Optional.empty(), 0, 0, true, false
+		ContainerLabelMode.NONE, Optional.empty(), Optional.empty(), List.of(), 0, 0, true, false
 	);
 
 	public ContainerLabelSummary(
@@ -31,10 +36,26 @@ public record ContainerLabelSummary(
 		boolean unavailable
 	) {
 		this(
-			mode, exactItemId, itemTagId, representativeItemId,
+			mode, exactItemId, itemTagId, representativeItemId.stream().toList(),
 			mode == ContainerLabelMode.WHITELIST ? 1 : 0,
 			mode == ContainerLabelMode.ITEM_TAG && unavailable ? 1 : 0,
 			conflict, unavailable
+		);
+	}
+
+	public ContainerLabelSummary(
+		ContainerLabelMode mode,
+		Optional<Identifier> exactItemId,
+		Optional<Identifier> itemTagId,
+		Optional<Identifier> representativeItemId,
+		int whitelistEntryCount,
+		int unavailableEntryCount,
+		boolean conflict,
+		boolean unavailable
+	) {
+		this(
+			mode, exactItemId, itemTagId, representativeItemId.stream().toList(),
+			whitelistEntryCount, unavailableEntryCount, conflict, unavailable
 		);
 	}
 
@@ -42,7 +63,16 @@ public record ContainerLabelSummary(
 		Objects.requireNonNull(mode, "mode");
 		exactItemId = Objects.requireNonNull(exactItemId, "exactItemId");
 		itemTagId = Objects.requireNonNull(itemTagId, "itemTagId");
-		representativeItemId = Objects.requireNonNull(representativeItemId, "representativeItemId");
+		previewItemIds = List.copyOf(Objects.requireNonNull(previewItemIds, "previewItemIds"));
+		if (previewItemIds.size() > MAX_PREVIEW_ITEMS || new LinkedHashSet<>(previewItemIds).size() != previewItemIds.size()) {
+			throw new IllegalArgumentException("Container label previews must be unique and bounded");
+		}
+		for (Identifier previewItemId : previewItemIds) {
+			Objects.requireNonNull(previewItemId, "previewItemId");
+			if (AIR_ID.equals(previewItemId) || previewItemId.toString().length() > ContainerLabelEntry.MAX_IDENTIFIER_LENGTH) {
+				throw new IllegalArgumentException("Invalid container label preview item");
+			}
+		}
 		if ((mode == ContainerLabelMode.EXACT_ITEM) != exactItemId.isPresent()
 			|| (mode == ContainerLabelMode.ITEM_TAG) != itemTagId.isPresent()
 			|| exactItemId.isPresent() && itemTagId.isPresent()) {
@@ -59,12 +89,15 @@ public record ContainerLabelSummary(
 			|| mode == ContainerLabelMode.NONE && unavailableEntryCount != 0) {
 			throw new IllegalArgumentException("Unavailable entry count must match the summary mode");
 		}
-		if (mode == ContainerLabelMode.NONE && representativeItemId.isPresent()) {
-			throw new IllegalArgumentException("None and rule-conflict summaries cannot expose a representative item");
+		if (mode == ContainerLabelMode.NONE && !previewItemIds.isEmpty()) {
+			throw new IllegalArgumentException("None and rule-conflict summaries cannot expose preview items");
 		}
 		if (mode == ContainerLabelMode.EXACT_ITEM
-			&& (!representativeItemId.equals(exactItemId) || conflict || unavailable || unavailableEntryCount != 0)) {
+			&& (!previewItemIds.equals(exactItemId.stream().toList()) || conflict || unavailable || unavailableEntryCount != 0)) {
 			throw new IllegalArgumentException("Exact-item summaries must expose the exact item without state flags");
+		}
+		if (mode == ContainerLabelMode.ITEM_TAG && previewItemIds.size() != (unavailable ? 0 : 1)) {
+			throw new IllegalArgumentException("Item-tag summaries must expose exactly one available preview item");
 		}
 		if (unavailable && (mode != ContainerLabelMode.ITEM_TAG && mode != ContainerLabelMode.WHITELIST || conflict)) {
 			throw new IllegalArgumentException("Unavailable summaries cannot also be conflicts");
@@ -72,13 +105,23 @@ public record ContainerLabelSummary(
 		if (mode == ContainerLabelMode.WHITELIST && unavailable != (unavailableEntryCount == whitelistEntryCount)) {
 			throw new IllegalArgumentException("Whitelist unavailable flag must mean every entry is unavailable");
 		}
+		if (mode == ContainerLabelMode.WHITELIST
+			&& previewItemIds.size() > whitelistEntryCount - unavailableEntryCount) {
+			throw new IllegalArgumentException("Whitelist previews cannot exceed the number of usable entries");
+		}
+		if (mode == ContainerLabelMode.WHITELIST && unavailable && !previewItemIds.isEmpty()) {
+			throw new IllegalArgumentException("Fully unavailable whitelist summaries cannot expose normal preview items");
+		}
+		if (mode == ContainerLabelMode.WHITELIST && !unavailable && previewItemIds.isEmpty()) {
+			throw new IllegalArgumentException("Usable whitelist summaries require a preview item");
+		}
 	}
 
 	public static ContainerLabelSummary of(ContainerLabelRule rule) {
 		return switch (rule.mode()) {
 			case NONE -> NONE;
 			case EXACT_ITEM -> new ContainerLabelSummary(
-				ContainerLabelMode.EXACT_ITEM, rule.exactItemId(), Optional.empty(), rule.exactItemId(), 0, 0, false, false
+				ContainerLabelMode.EXACT_ITEM, rule.exactItemId(), Optional.empty(), rule.exactItemId().stream().toList(), 0, 0, false, false
 			);
 			case ITEM_TAG -> itemTag(rule, false);
 			case WHITELIST -> whitelist(rule, false);
@@ -87,12 +130,15 @@ public record ContainerLabelSummary(
 
 	public static ContainerLabelSummary itemTag(ContainerLabelRule rule, boolean contentConflict) {
 		Identifier tagId = rule.itemTagId().orElseThrow();
-		boolean unavailable = ContainerItemTags.availability(tagId) != ContainerItemTags.Availability.AVAILABLE;
+		Optional<Identifier> representative = ContainerItemTags.availability(tagId) == ContainerItemTags.Availability.AVAILABLE
+			? ContainerItemTags.representativeItemId(tagId)
+			: Optional.empty();
+		boolean unavailable = representative.isEmpty();
 		return new ContainerLabelSummary(
 			ContainerLabelMode.ITEM_TAG,
 			Optional.empty(),
 			Optional.of(tagId),
-			unavailable ? Optional.empty() : ContainerItemTags.representativeItemId(tagId),
+			representative.stream().toList(),
 			0,
 			unavailable ? 1 : 0,
 			!unavailable && contentConflict,
@@ -101,29 +147,47 @@ public record ContainerLabelSummary(
 	}
 
 	public static ContainerLabelSummary whitelist(ContainerLabelRule rule, boolean contentConflict) {
+		return whitelist(rule, contentConflict, tagId ->
+			ContainerItemTags.availability(tagId) == ContainerItemTags.Availability.AVAILABLE
+				? ContainerItemTags.representativeItemId(tagId)
+				: Optional.empty()
+		);
+	}
+
+	static ContainerLabelSummary whitelist(
+		ContainerLabelRule rule,
+		boolean contentConflict,
+		Function<Identifier, Optional<Identifier>> representativeResolver
+	) {
 		if (rule.mode() != ContainerLabelMode.WHITELIST) {
 			throw new IllegalArgumentException("Expected a whitelist rule");
 		}
+		Objects.requireNonNull(representativeResolver, "representativeResolver");
 		int unavailableEntries = 0;
-		Optional<Identifier> representative = Optional.empty();
+		LinkedHashSet<Identifier> previews = new LinkedHashSet<>();
 		for (ContainerLabelEntry entry : rule.entries()) {
 			if (entry.type() == ContainerLabelEntryType.ITEM) {
-				if (representative.isEmpty()) {
-					representative = Optional.of(entry.valueId());
+				if (previews.size() < MAX_PREVIEW_ITEMS) {
+					previews.add(entry.valueId());
 				}
 				continue;
 			}
-			if (ContainerItemTags.availability(entry.valueId()) != ContainerItemTags.Availability.AVAILABLE) {
+			Optional<Identifier> representative = representativeResolver.apply(entry.valueId());
+			if (representative.isEmpty()) {
 				unavailableEntries++;
-			} else if (representative.isEmpty()) {
-				representative = ContainerItemTags.representativeItemId(entry.valueId());
+			} else if (previews.size() < MAX_PREVIEW_ITEMS) {
+				previews.add(representative.orElseThrow());
 			}
 		}
 		boolean fullyUnavailable = unavailableEntries == rule.entries().size();
 		return new ContainerLabelSummary(
-			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(), representative,
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(), List.copyOf(previews),
 			rule.entries().size(), unavailableEntries, !fullyUnavailable && contentConflict, fullyUnavailable
 		);
+	}
+
+	public Optional<Identifier> representativeItemId() {
+		return previewItemIds.stream().findFirst();
 	}
 
 	public boolean hasLabel() {

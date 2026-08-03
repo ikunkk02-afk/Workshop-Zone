@@ -8,6 +8,8 @@ import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -66,11 +68,11 @@ public record WorkshopNetworkEntry(
 		entry.customName.ifPresent(name -> buf.writeString(name, WorkshopNetworking.MAX_CUSTOM_NAME_WIRE_LENGTH));
 		buf.writeIdentifier(entry.labelSummary.mode().id());
 		buf.writeBoolean(entry.labelSummary.exactItemId().isPresent());
-		entry.labelSummary.exactItemId().ifPresent(buf::writeIdentifier);
+		entry.labelSummary.exactItemId().ifPresent(id -> ContainerLabelNetworkCodecs.writeIdentifier(buf, id));
 		buf.writeBoolean(entry.labelSummary.itemTagId().isPresent());
-		entry.labelSummary.itemTagId().ifPresent(buf::writeIdentifier);
-		buf.writeBoolean(entry.labelSummary.representativeItemId().isPresent());
-		entry.labelSummary.representativeItemId().ifPresent(buf::writeIdentifier);
+		entry.labelSummary.itemTagId().ifPresent(id -> ContainerLabelNetworkCodecs.writeIdentifier(buf, id));
+		buf.writeVarInt(entry.labelSummary.previewItemIds().size());
+		entry.labelSummary.previewItemIds().forEach(id -> ContainerLabelNetworkCodecs.writeIdentifier(buf, id));
 		buf.writeVarInt(entry.labelSummary.whitelistEntryCount());
 		buf.writeVarInt(entry.labelSummary.unavailableEntryCount());
 		buf.writeBoolean(entry.labelSummary.conflict());
@@ -92,9 +94,20 @@ public record WorkshopNetworkEntry(
 		Identifier labelModeId = buf.readIdentifier();
 		ContainerLabelMode labelMode = ContainerLabelMode.fromId(labelModeId)
 			.orElseThrow(() -> new DecoderException("Unknown container label mode: " + labelModeId));
-		Optional<Identifier> exactItemId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
-		Optional<Identifier> itemTagId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
-		Optional<Identifier> representativeItemId = buf.readBoolean() ? Optional.of(buf.readIdentifier()) : Optional.empty();
+		Optional<Identifier> exactItemId = buf.readBoolean()
+			? Optional.of(ContainerLabelNetworkCodecs.readIdentifier(buf, "exact item id"))
+			: Optional.empty();
+		Optional<Identifier> itemTagId = buf.readBoolean()
+			? Optional.of(ContainerLabelNetworkCodecs.readIdentifier(buf, "item tag id"))
+			: Optional.empty();
+		int previewCount = buf.readVarInt();
+		if (previewCount < 0 || previewCount > ContainerLabelSummary.MAX_PREVIEW_ITEMS) {
+			throw new DecoderException("Container label preview item count exceeds limit: " + previewCount);
+		}
+		List<Identifier> previewItemIds = new ArrayList<>(previewCount);
+		for (int index = 0; index < previewCount; index++) {
+			previewItemIds.add(ContainerLabelNetworkCodecs.readIdentifier(buf, "preview item id"));
+		}
 		int whitelistEntryCount = buf.readVarInt();
 		int unavailableEntryCount = buf.readVarInt();
 		boolean conflict = buf.readBoolean();
@@ -103,7 +116,7 @@ public record WorkshopNetworkEntry(
 			return new WorkshopNetworkEntry(
 				type, position, blockId, distanceSquared, container, workstation, customName,
 				new ContainerLabelSummary(
-					labelMode, exactItemId, itemTagId, representativeItemId,
+					labelMode, exactItemId, itemTagId, previewItemIds,
 					whitelistEntryCount, unavailableEntryCount, conflict, unavailable
 				)
 			);

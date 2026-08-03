@@ -32,4 +32,17 @@ class WorkshopSidebarLayoutTest {
 		assertTrue(top.visible());
 		assertFalse(outside.visible());
 	}
+
+	@Test
+	void multiIconPreviewWidthIncludesOverlapAndCounter() {
+		assertEquals(12, WorkshopSidebarLayout.labelPreviewWidth(1, 0));
+		assertEquals(30, WorkshopSidebarLayout.labelPreviewWidth(3, 0));
+		assertEquals(44, WorkshopSidebarLayout.labelPreviewWidth(3, 8));
+	}
+
+	@Test
+	void remainingLabelCountUsesTotalEntriesNotSnapshotPreviewCount() {
+		assertEquals(3, WorkshopSidebarLayout.remainingLabelCount(6, 3));
+		assertEquals(0, WorkshopSidebarLayout.remainingLabelCount(2, 3));
+	}
 }

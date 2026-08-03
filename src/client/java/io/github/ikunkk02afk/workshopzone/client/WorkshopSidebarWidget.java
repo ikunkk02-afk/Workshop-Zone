@@ -39,7 +39,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.Vec3d;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -51,6 +50,8 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private static final int BUTTON_SIZE = 16;
 	private static final int TAG_ROW_HEIGHT = 22;
 	private static final int WHITELIST_ROW_HEIGHT = 26;
+	private static final int LABEL_EDITOR_HEADER_HEIGHT = 44;
+	private static final int BUTTON_HORIZONTAL_PADDING = 10;
 	private static final long PENDING_TIMEOUT_MILLIS = 3_000L;
 	private static final double MAX_VISUAL_OPEN_DISTANCE_SQUARED = 64.0;
 
@@ -75,7 +76,6 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	private ItemStack selectedTagIcon = ItemStack.EMPTY;
 	private List<ContainerTagCandidate> commonTagChoices = List.of();
 	private List<ContainerTagCandidate> queriedTagChoices = List.of();
-	private final Map<Identifier, ItemStack> tagIconCache = new HashMap<>();
 	private int tagScrollOffset;
 	private boolean tagQueryPending;
 	private Identifier queriedItemId;
@@ -243,15 +243,15 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			}
 			context.fill(getX() + 3, rowY, getRight() - 3, rowY + ROW_HEIGHT - 1, background);
 			context.drawItem(entry.icon(), getX() + 7, rowY + 4);
-			boolean hasRightIcon = entry.labelSummary().hasLabel() || entry.labelSummary().conflict() || entry.labelSummary().unavailable();
-			int nameRight = getRight() - (hasRightIcon ? 28 : 8) - 4;
+			int labelPreviewWidth = labelPreviewWidth(textRenderer, entry);
+			int nameRight = getRight() - 8 - labelPreviewWidth - (labelPreviewWidth > 0 ? 4 : 0);
 			int availableNameWidth = Math.max(0, nameRight - (getX() + 27));
 			Text name = WorkshopTextLayout.ellipsize(textRenderer, entry.displayName(), availableNameWidth);
 			context.drawTextWithShadow(textRenderer, name, getX() + 27, rowY + 3, tooFar ? 0x8A8A8A : 0xFFFFFF);
 			if (entry.labelSummary().conflict()) {
 				context.drawCenteredTextWithShadow(textRenderer, "!", getRight() - 14, rowY + 8, 0xFF5555);
-			} else if (!entry.labelIcon().isEmpty()) {
-				context.drawItem(entry.labelIcon(), getRight() - 23, rowY + 4);
+			} else {
+				renderLabelPreview(context, textRenderer, entry, getRight() - 8, rowY + 6);
 			}
 			Text detail;
 			if (currentEntry) {
@@ -467,9 +467,13 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		setWidth(panel.width());
 		setHeight(panel.height());
 		if (!sidebarMetrics.collapsed() && labelEditor) {
+			List<Text> modeTexts = labelModeTexts();
+			List<Text> actionTexts = labelActionTexts();
 			labelLayout = WorkshopLabelEditorLayout.calculate(
-				panel, HEADER_HEIGHT, 3, labelEditorMode == ContainerLabelMode.WHITELIST ? 7 : 4,
-				editorStatusLineCount(renderer, snapshot)
+				panel, LABEL_EDITOR_HEADER_HEIGHT,
+				buttonMinimumWidths(renderer, modeTexts), buttonMinimumWidths(renderer, actionTexts),
+				editorStatusLineCount(renderer, snapshot), labelEditorMode == ContainerLabelMode.WHITELIST,
+				labelEditorMode == ContainerLabelMode.WHITELIST ? WHITELIST_ROW_HEIGHT : TAG_ROW_HEIGHT
 			);
 		} else {
 			labelLayout = null;
@@ -478,24 +482,14 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 	}
 
 	private int preferredPanelWidth(TextRenderer renderer) {
-		int modeWidth = List.of(
-			Text.translatable("gui.workshop_zone.label.mode_exact"),
-			Text.translatable("gui.workshop_zone.label.mode_tag"),
-			Text.translatable("gui.workshop_zone.label.mode_whitelist")
-		).stream().mapToInt(renderer::getWidth).max().orElse(0);
-		int actionWidth = List.of(
-			Text.translatable("gui.workshop_zone.label.use_cursor"),
-			Text.translatable("gui.workshop_zone.label.find_categories"),
-			Text.translatable("gui.workshop_zone.label.add_cursor_item"),
-			Text.translatable("gui.workshop_zone.label.add_selected_tag"),
-			Text.translatable("gui.workshop_zone.label.remove_selected"),
-			Text.translatable("gui.workshop_zone.label.save"),
-			Text.translatable("gui.workshop_zone.label.clear"),
-			Text.translatable("gui.workshop_zone.label.cancel")
-		).stream().mapToInt(renderer::getWidth).max().orElse(0);
+		List<Integer> modeWidths = buttonMinimumWidths(renderer, labelModeTexts());
+		List<Integer> whitelistActionWidths = buttonMinimumWidths(renderer, whitelistActionTexts());
 		int translatedPreference = Math.max(
 			WorkshopSidebarMetrics.PREFERRED_PANEL_WIDTH,
-			Math.max(modeWidth * 3 + 22, actionWidth * 2 + 18)
+			Math.max(
+				WorkshopLabelEditorLayout.requiredWidthForColumns(modeWidths, 3) + 10,
+				WorkshopLabelEditorLayout.requiredWidthForColumns(whitelistActionWidths, 3) + 10
+			)
 		);
 		return Math.min(WorkshopSidebarMetrics.MAX_PANEL_WIDTH, translatedPreference);
 	}
@@ -536,6 +530,103 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		context.drawCenteredTextWithShadow(MinecraftClient.getInstance().textRenderer, label, x + BUTTON_SIZE / 2, y + 4, 0xFFFFFF);
 	}
 
+	private static List<Text> labelModeTexts() {
+		return List.of(
+			Text.translatable("gui.workshop_zone.label.mode_exact"),
+			Text.translatable("gui.workshop_zone.label.mode_tag"),
+			Text.translatable("gui.workshop_zone.label.mode_whitelist")
+		);
+	}
+
+	private List<Text> labelActionTexts() {
+		if (labelEditorMode == ContainerLabelMode.EXACT_ITEM) {
+			return List.of(
+				Text.translatable("gui.workshop_zone.label.use_cursor"),
+				Text.translatable("gui.workshop_zone.label.save"),
+				Text.translatable("gui.workshop_zone.label.clear"),
+				Text.translatable("gui.workshop_zone.label.cancel")
+			);
+		}
+		if (labelEditorMode == ContainerLabelMode.ITEM_TAG) {
+			return List.of(
+				Text.translatable("gui.workshop_zone.label.find_categories"),
+				Text.translatable("gui.workshop_zone.label.save"),
+				Text.translatable("gui.workshop_zone.label.clear"),
+				Text.translatable("gui.workshop_zone.label.cancel")
+			);
+		}
+		return whitelistActionTexts();
+	}
+
+	private static List<Text> whitelistActionTexts() {
+		return List.of(
+			Text.translatable("gui.workshop_zone.label.add_cursor_item"),
+			Text.translatable("gui.workshop_zone.label.find_categories"),
+			Text.translatable("gui.workshop_zone.label.add_selected_tag"),
+			Text.translatable("gui.workshop_zone.label.remove_selected"),
+			Text.translatable("gui.workshop_zone.label.save"),
+			Text.translatable("gui.workshop_zone.label.clear"),
+			Text.translatable("gui.workshop_zone.label.cancel")
+		);
+	}
+
+	private static List<Integer> buttonMinimumWidths(TextRenderer renderer, List<Text> texts) {
+		return texts.stream().map(text -> renderer.getWidth(text) + BUTTON_HORIZONTAL_PADDING).toList();
+	}
+
+	private static int labelPreviewWidth(TextRenderer renderer, ClientWorkshopEntry entry) {
+		if (entry.labelSummary().conflict()) {
+			return WorkshopSidebarLayout.LABEL_PREVIEW_ICON_SIZE;
+		}
+		int displayedIcons = Math.min(WorkshopSidebarLayout.MAX_ROW_LABEL_ICONS, entry.labelIcons().size());
+		int remaining = entry.labelSummary().mode() == ContainerLabelMode.WHITELIST && !entry.labelSummary().unavailable()
+			? WorkshopSidebarLayout.remainingLabelCount(entry.labelSummary().whitelistEntryCount(), displayedIcons)
+			: 0;
+		int remainingTextWidth = remaining == 0 ? 0 : renderer.getWidth("+" + remaining);
+		return WorkshopSidebarLayout.labelPreviewWidth(displayedIcons, remainingTextWidth);
+	}
+
+	private static void renderLabelPreview(
+		DrawContext context,
+		TextRenderer renderer,
+		ClientWorkshopEntry entry,
+		int right,
+		int top
+	) {
+		int displayedIcons = Math.min(WorkshopSidebarLayout.MAX_ROW_LABEL_ICONS, entry.labelIcons().size());
+		int remaining = entry.labelSummary().mode() == ContainerLabelMode.WHITELIST && !entry.labelSummary().unavailable()
+			? WorkshopSidebarLayout.remainingLabelCount(entry.labelSummary().whitelistEntryCount(), displayedIcons)
+			: 0;
+		int iconWidth = displayedIcons == 0 ? 0
+			: WorkshopSidebarLayout.LABEL_PREVIEW_ICON_SIZE
+				+ (displayedIcons - 1) * WorkshopSidebarLayout.LABEL_PREVIEW_ICON_STEP;
+		if (remaining > 0) {
+			String counter = "+" + remaining;
+			int textWidth = renderer.getWidth(counter);
+			int counterRight = right - iconWidth - (iconWidth > 0 ? 2 : 0);
+			int counterLeft = counterRight - textWidth - 4;
+			context.fill(counterLeft, top + 1, counterRight, top + 11, 0xCC101018);
+			context.drawTextWithShadow(renderer, counter, counterLeft + 2, top + 2, 0xFFFFFF);
+		}
+		for (int index = displayedIcons - 1; index >= 0; index--) {
+			int x = right - WorkshopSidebarLayout.LABEL_PREVIEW_ICON_SIZE
+				- index * WorkshopSidebarLayout.LABEL_PREVIEW_ICON_STEP;
+			renderScaledItem(context, entry.labelIcons().get(index), x, top, WorkshopSidebarLayout.LABEL_PREVIEW_ICON_SIZE);
+		}
+	}
+
+	private static void renderScaledItem(DrawContext context, ItemStack stack, int x, int y, int size) {
+		if (stack.isEmpty() || size <= 0) {
+			return;
+		}
+		float scale = size / 16.0F;
+		context.getMatrices().push();
+		context.getMatrices().translate(x, y, 0.0F);
+		context.getMatrices().scale(scale, scale, 1.0F);
+		context.drawItem(stack, 0, 0);
+		context.getMatrices().pop();
+	}
+
 	private static List<Text> tooltip(ClientWorkshopEntry entry, boolean current, boolean tooFar, boolean pending) {
 		List<Text> lines = new ArrayList<>();
 		lines.add(entry.displayName());
@@ -555,6 +646,16 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			lines.add(Text.translatable(
 				"gui.workshop_zone.label.whitelist_count", entry.labelSummary().whitelistEntryCount()
 			).formatted(Formatting.GOLD));
+			lines.add(Text.translatable("gui.workshop_zone.label.preview").formatted(Formatting.YELLOW));
+			for (int index = 0; index < entry.labelSummary().previewItemIds().size() && index < entry.labelIcons().size(); index++) {
+				lines.add(Text.literal("- ").append(entry.labelIcons().get(index).getName()).formatted(Formatting.GRAY));
+			}
+			int previewRemaining = WorkshopSidebarLayout.remainingLabelCount(
+				entry.labelSummary().whitelistEntryCount(), entry.labelSummary().previewItemIds().size()
+			);
+			if (previewRemaining > 0) {
+				lines.add(Text.translatable("gui.workshop_zone.label.preview_more", previewRemaining).formatted(Formatting.GRAY));
+			}
 			if (entry.labelSummary().unavailableEntryCount() > 0) {
 				lines.add(Text.translatable(
 					"gui.workshop_zone.label.unavailable_entries", entry.labelSummary().unavailableEntryCount()
@@ -563,6 +664,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			if (entry.labelSummary().contentConflict()) {
 				lines.add(Text.translatable("gui.workshop_zone.label.content_conflict").formatted(Formatting.RED));
 			}
+			lines.add(Text.translatable("gui.workshop_zone.label.open_to_view_all").formatted(Formatting.DARK_GRAY));
 		} else if (entry.labelSummary().unavailable()) {
 			lines.add(Text.translatable("gui.workshop_zone.label.tag_unavailable").formatted(Formatting.RED));
 			entry.labelSummary().itemTagId().ifPresent(tagId -> lines.add(
@@ -676,11 +778,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		WorkshopSidebarMetrics.Rect modeArea = labelLayout.modeArea();
 		context.drawTextWithShadow(renderer, Text.translatable("gui.workshop_zone.label.mode"), modeArea.left() + 2, modeArea.top(), 0xA8A8A8);
 
-		List<Text> modeTexts = List.of(
-			Text.translatable("gui.workshop_zone.label.mode_exact"),
-			Text.translatable("gui.workshop_zone.label.mode_tag"),
-			Text.translatable("gui.workshop_zone.label.mode_whitelist")
-		);
+		List<Text> modeTexts = labelModeTexts();
 		List<ContainerLabelMode> modes = List.of(
 			ContainerLabelMode.EXACT_ITEM, ContainerLabelMode.ITEM_TAG, ContainerLabelMode.WHITELIST
 		);
@@ -693,9 +791,34 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		}
 
 		Text currentText = Text.translatable("gui.workshop_zone.label.current_value", currentLabelText(opened));
-		boolean currentTruncated = drawWrappedText(
-			context, renderer, currentText, labelLayout.currentArea(), 2, 0xFFD080
-		);
+		boolean currentTruncated;
+		if (labelEditorMode == ContainerLabelMode.WHITELIST) {
+			WorkshopSidebarMetrics.Rect currentArea = labelLayout.currentArea();
+			Text countText = Text.translatable(
+				"gui.workshop_zone.label.whitelist_list_count", whitelistEntries.size(),
+				io.github.ikunkk02afk.workshopzone.label.ContainerLabelRule.MAX_ENTRIES
+			);
+			if (currentArea.height() >= 9) {
+				Text visibleCount = WorkshopTextLayout.ellipsize(renderer, countText, Math.max(0, currentArea.width() / 2));
+				int countWidth = renderer.getWidth(visibleCount);
+				int currentWidth = Math.max(0, currentArea.width() - countWidth - 5);
+				Text visibleCurrent = WorkshopTextLayout.ellipsize(renderer, currentText, currentWidth);
+				context.drawTextWithShadow(renderer, visibleCurrent, currentArea.left(), currentArea.top(), 0xFFD080);
+				context.drawTextWithShadow(
+					renderer, visibleCount, currentArea.right() - countWidth, currentArea.top(), 0xA8A8A8
+				);
+				currentTruncated = WorkshopTextLayout.isTruncated(renderer, currentText, currentWidth);
+			} else {
+				currentTruncated = true;
+			}
+			if (currentArea.height() >= 23) {
+				renderWhitelistOverview(context, renderer);
+			}
+		} else {
+			currentTruncated = drawWrappedText(
+				context, renderer, currentText, labelLayout.currentArea(), 2, 0xFFD080
+			);
+		}
 
 		if (labelEditorMode == ContainerLabelMode.EXACT_ITEM) {
 			renderExactCandidate(context, renderer);
@@ -736,15 +859,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			);
 		} else {
 			boolean full = whitelistEntries.size() >= io.github.ikunkk02afk.workshopzone.label.ContainerLabelRule.MAX_ENTRIES;
-			actionTexts = List.of(
-				Text.translatable("gui.workshop_zone.label.add_cursor_item"),
-				Text.translatable("gui.workshop_zone.label.find_categories"),
-				Text.translatable("gui.workshop_zone.label.add_selected_tag"),
-				Text.translatable("gui.workshop_zone.label.remove_selected"),
-				Text.translatable("gui.workshop_zone.label.save"),
-				Text.translatable("gui.workshop_zone.label.clear"),
-				Text.translatable("gui.workshop_zone.label.cancel")
-			);
+			actionTexts = whitelistActionTexts();
 			actionEnabled = List.of(
 				!labelPending && !full && !getCursorStack().isEmpty(),
 				!labelPending && !tagQueryPending && !getCursorStack().isEmpty(),
@@ -784,10 +899,16 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 				context, renderer, labelLayout.actionButtons().get(index), actionTexts.get(index), actionEnabled.get(index), mouseX, mouseY
 			);
 		}
-		if (currentTruncated && labelLayout.currentArea().contains(mouseX, mouseY)) {
+		ContainerLabelEntry overviewEntry = labelEditorMode == ContainerLabelMode.WHITELIST
+			? whitelistOverviewEntryAt(mouseX, mouseY)
+			: null;
+		if (currentTruncated && labelLayout.currentArea().contains(mouseX, mouseY)
+			&& mouseY < labelLayout.currentArea().top() + 9) {
 			context.drawTooltip(renderer, currentText, mouseX, mouseY);
 		} else if (stateTruncated && state != null && labelLayout.statusArea().contains(mouseX, mouseY)) {
 			context.drawTooltip(renderer, state, mouseX, mouseY);
+		} else if (overviewEntry != null) {
+			context.drawTooltip(renderer, whitelistEntryTooltip(overviewEntry), mouseX, mouseY);
 		} else if (!actionEnabled.getFirst() && labelLayout.actionButtons().getFirst().contains(mouseX, mouseY)
 			&& getCursorStack().isEmpty()) {
 			context.drawTooltip(renderer, Text.translatable("gui.workshop_zone.label.cursor_empty"), mouseX, mouseY);
@@ -850,7 +971,7 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 			String idText;
 			if (entry.type() == ContainerLabelEntryType.ITEM) {
 				Item item = Registries.ITEM.getOrEmpty(entry.valueId()).orElse(net.minecraft.item.Items.BARRIER);
-				icon = new ItemStack(item);
+				icon = ClientWorkshopState.labelIcon(entry.valueId());
 				name = item.getName();
 				idText = entry.valueId().toString();
 			} else {
@@ -882,17 +1003,92 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		}
 		if (hoveredIndex >= 0 && hoveredIndex < whitelistEntries.size()) {
 			ContainerLabelEntry hovered = whitelistEntries.get(hoveredIndex);
-			boolean unavailable = labelDetails.stream().anyMatch(detail -> detail.entry().equals(hovered) && detail.unavailable());
-			List<Text> tooltip = new ArrayList<>();
-			tooltip.add(hovered.type() == ContainerLabelEntryType.ITEM
-				? Registries.ITEM.getOrEmpty(hovered.valueId()).orElse(net.minecraft.item.Items.BARRIER).getName()
-				: ContainerTagPreset.displayName(hovered.valueId()));
-			tooltip.add(Text.literal((hovered.type() == ContainerLabelEntryType.ITEM_TAG ? "#" : "") + hovered.valueId()).formatted(Formatting.GRAY));
-			if (unavailable) {
-				tooltip.add(Text.translatable("gui.workshop_zone.label.tag_unavailable").formatted(Formatting.RED));
-			}
-			context.drawTooltip(renderer, tooltip, mouseX, mouseY);
+			context.drawTooltip(renderer, whitelistEntryTooltip(hovered), mouseX, mouseY);
 		}
+	}
+
+	private void renderWhitelistOverview(DrawContext context, TextRenderer renderer) {
+		WorkshopSidebarMetrics.Rect area = labelLayout.currentArea();
+		if (area.height() < 23) {
+			return;
+		}
+		int count = whitelistOverviewCount();
+		int top = area.top() + 11;
+		for (int index = 0; index < count; index++) {
+			renderScaledItem(context, whitelistIcon(whitelistEntries.get(index)), area.left() + index * 13, top, 12);
+		}
+		int remaining = whitelistEntries.size() - count;
+		if (remaining > 0) {
+			String counter = "+" + remaining;
+			int x = area.left() + count * 13 + 1;
+			int width = renderer.getWidth(counter) + 4;
+			context.fill(x, top + 1, Math.min(area.right(), x + width), top + 11, 0xCC101018);
+			context.drawTextWithShadow(renderer, counter, x + 2, top + 2, 0xFFFFFF);
+		}
+	}
+
+	private ContainerLabelEntry whitelistOverviewEntryAt(double mouseX, double mouseY) {
+		WorkshopSidebarMetrics.Rect area = labelLayout.currentArea();
+		if (area.height() < 23) {
+			return null;
+		}
+		int top = area.top() + 11;
+		if (mouseY < top || mouseY >= top + 12 || mouseX < area.left()) {
+			return null;
+		}
+		int index = (int)(mouseX - area.left()) / 13;
+		int count = whitelistOverviewCount();
+		return index >= 0 && index < count && mouseX < area.left() + index * 13 + 12
+			? whitelistEntries.get(index)
+			: null;
+	}
+
+	private int whitelistOverviewCount() {
+		WorkshopSidebarMetrics.Rect area = labelLayout.currentArea();
+		if (area.height() < 23) {
+			return 0;
+		}
+		int heightLimit = area.height() >= 25 ? 8 : 4;
+		int widthLimit = Math.max(0, (area.width() - (whitelistEntries.size() > heightLimit ? 20 : 0)) / 13);
+		return Math.min(whitelistEntries.size(), Math.min(heightLimit, widthLimit));
+	}
+
+	private ItemStack whitelistIcon(ContainerLabelEntry entry) {
+		if (entry.type() == ContainerLabelEntryType.ITEM) {
+			return ClientWorkshopState.labelIcon(entry.valueId());
+		}
+		ContainerLabelDetailsEntry detail = labelDetail(entry);
+		Identifier representative = detail == null
+			? ContainerItemTags.representativeItemId(entry.valueId()).orElse(null)
+			: detail.representativeItemId().orElse(null);
+		return iconForTag(entry.valueId(), representative);
+	}
+
+	private List<Text> whitelistEntryTooltip(ContainerLabelEntry entry) {
+		boolean unavailable = isWhitelistEntryUnavailable(entry);
+		List<Text> tooltip = new ArrayList<>();
+		tooltip.add(entry.type() == ContainerLabelEntryType.ITEM
+			? Registries.ITEM.getOrEmpty(entry.valueId()).orElse(net.minecraft.item.Items.BARRIER).getName()
+			: ContainerTagPreset.displayName(entry.valueId()));
+		tooltip.add(Text.literal((entry.type() == ContainerLabelEntryType.ITEM_TAG ? "#" : "") + entry.valueId()).formatted(Formatting.GRAY));
+		if (unavailable) {
+			tooltip.add(Text.translatable("gui.workshop_zone.label.tag_unavailable").formatted(Formatting.RED));
+		}
+		return tooltip;
+	}
+
+	private boolean isWhitelistEntryUnavailable(ContainerLabelEntry entry) {
+		if (entry.type() == ContainerLabelEntryType.ITEM) {
+			return false;
+		}
+		ContainerLabelDetailsEntry detail = labelDetail(entry);
+		return detail == null
+			? ContainerItemTags.availability(entry.valueId()) != ContainerItemTags.Availability.AVAILABLE
+			: detail.unavailable();
+	}
+
+	private ContainerLabelDetailsEntry labelDetail(ContainerLabelEntry entry) {
+		return labelDetails.stream().filter(detail -> detail.entry().equals(entry)).findFirst().orElse(null);
 	}
 
 	private void handleLabelEditorClick(ClientWorkshopSnapshot snapshot, double mouseX, double mouseY) {
@@ -1168,11 +1364,9 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 
 	private ItemStack iconForTag(Identifier tagId, Identifier representativeItemId) {
 		if (representativeItemId == null) {
-			return new ItemStack(net.minecraft.item.Items.BARRIER);
+			return ClientWorkshopState.labelIcon(Identifier.ofVanilla("barrier"));
 		}
-		return tagIconCache.computeIfAbsent(representativeItemId, id ->
-			new ItemStack(Registries.ITEM.getOrEmpty(id).orElse(net.minecraft.item.Items.BARRIER))
-		);
+		return ClientWorkshopState.labelIcon(representativeItemId);
 	}
 
 	private void requestTagCandidates(ClientWorkshopSnapshot snapshot) {

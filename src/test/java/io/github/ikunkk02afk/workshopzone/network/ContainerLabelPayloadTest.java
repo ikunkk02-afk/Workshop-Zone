@@ -131,7 +131,10 @@ class ContainerLabelPayloadTest {
 	void whitelistSnapshotContainsOnlySummary() {
 		ContainerLabelSummary summary = new ContainerLabelSummary(
 			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(),
-			Optional.of(Identifier.ofVanilla("iron_ingot")), 12, 2, false, false
+			List.of(
+				Identifier.ofVanilla("copper_ingot"), Identifier.ofVanilla("gold_ingot"),
+				Identifier.ofVanilla("iron_ingot"), Identifier.ofVanilla("diamond")
+			), 12, 2, false, false
 		);
 		WorkshopNetworkEntry original = new WorkshopNetworkEntry(
 			WorkshopBlockType.CHEST, BlockPos.ORIGIN, Identifier.ofVanilla("chest"), 0,
@@ -141,7 +144,89 @@ class ContainerLabelPayloadTest {
 		WorkshopNetworkEntry.write(buffer, original);
 		WorkshopNetworkEntry decoded = WorkshopNetworkEntry.read(buffer);
 		assertEquals(summary, decoded.labelSummary());
+		assertEquals(summary.previewItemIds(), decoded.labelSummary().previewItemIds());
 		assertEquals(0, buffer.readableBytes());
+	}
+
+	@Test
+	void noneSummaryRoundTripsWithoutPreviewItems() {
+		assertEquals(ContainerLabelSummary.NONE, roundTripSummary(ContainerLabelSummary.NONE));
+	}
+
+	@Test
+	void oneAndFourItemWhitelistSummariesRoundTripInOrder() {
+		ContainerLabelSummary one = new ContainerLabelSummary(
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(),
+			List.of(Identifier.ofVanilla("iron_ingot")), 1, 0, false, false
+		);
+		ContainerLabelSummary four = new ContainerLabelSummary(
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(),
+			List.of(
+				Identifier.ofVanilla("copper_ingot"), Identifier.ofVanilla("gold_ingot"),
+				Identifier.ofVanilla("iron_ingot"), Identifier.ofVanilla("diamond")
+			), 6, 0, false, false
+		);
+
+		assertEquals(one, roundTripSummary(one));
+		assertEquals(four, roundTripSummary(four));
+	}
+
+	@Test
+	void partialAndFullyUnavailableWhitelistSummariesRoundTrip() {
+		ContainerLabelSummary partial = new ContainerLabelSummary(
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(),
+			List.of(Identifier.ofVanilla("iron_ingot"), Identifier.ofVanilla("oak_log")),
+			4, 2, false, false
+		);
+		ContainerLabelSummary fullyUnavailable = new ContainerLabelSummary(
+			ContainerLabelMode.WHITELIST, Optional.empty(), Optional.empty(), List.of(),
+			2, 2, false, true
+		);
+
+		assertEquals(partial, roundTripSummary(partial));
+		assertEquals(fullyUnavailable, roundTripSummary(fullyUnavailable));
+	}
+
+	@Test
+	void snapshotRejectsMoreThanFourPreviewItemsBeforeReadingThem() {
+		RegistryByteBuf buffer = buffer();
+		buffer.writeIdentifier(WorkshopBlockType.CHEST.networkId());
+		buffer.writeBlockPos(BlockPos.ORIGIN);
+		buffer.writeIdentifier(Identifier.ofVanilla("chest"));
+		buffer.writeDouble(0.0);
+		buffer.writeBoolean(true);
+		buffer.writeBoolean(false);
+		buffer.writeBoolean(false);
+		buffer.writeIdentifier(ContainerLabelMode.WHITELIST.id());
+		buffer.writeBoolean(false);
+		buffer.writeBoolean(false);
+		buffer.writeVarInt(5);
+
+		assertThrows(DecoderException.class, () -> WorkshopNetworkEntry.read(buffer));
+	}
+
+	@Test
+	void snapshotRejectsMorePreviewsThanUsableWhitelistEntries() {
+		RegistryByteBuf buffer = buffer();
+		buffer.writeIdentifier(WorkshopBlockType.CHEST.networkId());
+		buffer.writeBlockPos(BlockPos.ORIGIN);
+		buffer.writeIdentifier(Identifier.ofVanilla("chest"));
+		buffer.writeDouble(0.0);
+		buffer.writeBoolean(true);
+		buffer.writeBoolean(false);
+		buffer.writeBoolean(false);
+		buffer.writeIdentifier(ContainerLabelMode.WHITELIST.id());
+		buffer.writeBoolean(false);
+		buffer.writeBoolean(false);
+		buffer.writeVarInt(2);
+		ContainerLabelNetworkCodecs.writeIdentifier(buffer, Identifier.ofVanilla("iron_ingot"));
+		ContainerLabelNetworkCodecs.writeIdentifier(buffer, Identifier.ofVanilla("gold_ingot"));
+		buffer.writeVarInt(1);
+		buffer.writeVarInt(0);
+		buffer.writeBoolean(false);
+		buffer.writeBoolean(false);
+
+		assertThrows(DecoderException.class, () -> WorkshopNetworkEntry.read(buffer));
 	}
 
 	@Test
@@ -167,7 +252,9 @@ class ContainerLabelPayloadTest {
 		);
 		RegistryByteBuf buffer = buffer();
 		WorkshopNetworkEntry.write(buffer, original);
-		assertEquals(original, WorkshopNetworkEntry.read(buffer));
+		WorkshopNetworkEntry decoded = WorkshopNetworkEntry.read(buffer);
+		assertEquals(original, decoded);
+		assertEquals(List.of(Identifier.ofVanilla("iron_ingot")), decoded.labelSummary().previewItemIds());
 		assertEquals(0, buffer.readableBytes());
 	}
 
@@ -183,11 +270,25 @@ class ContainerLabelPayloadTest {
 		);
 		RegistryByteBuf buffer = buffer();
 		WorkshopNetworkEntry.write(buffer, original);
-		assertEquals(original, WorkshopNetworkEntry.read(buffer));
+		WorkshopNetworkEntry decoded = WorkshopNetworkEntry.read(buffer);
+		assertEquals(original, decoded);
+		assertEquals(List.of(Identifier.ofVanilla("oak_log")), decoded.labelSummary().previewItemIds());
 		assertEquals(0, buffer.readableBytes());
 	}
 
 	private static RegistryByteBuf buffer() {
 		return new RegistryByteBuf(Unpooled.buffer(), DynamicRegistryManager.EMPTY);
+	}
+
+	private static ContainerLabelSummary roundTripSummary(ContainerLabelSummary summary) {
+		WorkshopNetworkEntry original = new WorkshopNetworkEntry(
+			WorkshopBlockType.CHEST, BlockPos.ORIGIN, Identifier.ofVanilla("chest"), 0,
+			true, false, Optional.empty(), summary
+		);
+		RegistryByteBuf buffer = buffer();
+		WorkshopNetworkEntry.write(buffer, original);
+		WorkshopNetworkEntry decoded = WorkshopNetworkEntry.read(buffer);
+		assertEquals(0, buffer.readableBytes());
+		return decoded.labelSummary();
 	}
 }

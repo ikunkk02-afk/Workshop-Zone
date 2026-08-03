@@ -70,46 +70,59 @@ class WorkshopResponsiveLayoutTest {
 	}
 
 	@Test
-	void threeModeButtonsAndFourActionsNeverOverlapAtSupportedWidths() {
-		for (int width : List.of(154, 180, 210, 280)) {
-			WorkshopLabelEditorLayout layout = WorkshopLabelEditorLayout.calculate(
-				new WorkshopSidebarMetrics.Rect(5, 5, width, 300), 54, 3, 4, 2
-			);
-			assertEquals(3, layout.modeButtons().size());
-			assertEquals(4, layout.actionButtons().size());
-			assertNoOverlap(layout.modeButtons());
-			assertNoOverlap(layout.actionButtons());
-			layout.modeButtons().forEach(rect -> assertInside(rect, layout.content()));
-			layout.actionButtons().forEach(rect -> assertInside(rect, layout.content()));
-			assertTrue(layout.listArea().bottom() <= layout.statusArea().top());
-			assertTrue(layout.statusArea().bottom() <= layout.actionArea().top());
-		}
+	void modeButtonsUseOneRowWhenMeasuredTextsFit() {
+		WorkshopLabelEditorLayout layout = whitelistLayout(280, 300, 0);
+
+		assertEquals(3, layout.modeButtons().size());
+		assertEquals(1, distinctRows(layout.modeButtons()));
+		assertNoOverlap(layout.modeButtons());
 	}
 
 	@Test
-	void sevenWhitelistActionsUseResponsiveRowsWithoutOverlap() {
-		for (int width : List.of(154, 180, 210, 280)) {
-			WorkshopLabelEditorLayout layout = WorkshopLabelEditorLayout.calculate(
-				new WorkshopSidebarMetrics.Rect(5, 5, width, 300), 54, 3, 7, 2
-			);
-			assertEquals(7, layout.actionButtons().size());
-			assertNoOverlap(layout.actionButtons());
-			layout.actionButtons().forEach(rect -> assertInside(rect, layout.content()));
-			assertFalse(layout.modeArea().intersects(layout.actionArea()));
-			if (width == 154) {
-				layout.actionButtons().forEach(rect -> assertEquals(layout.content().width(), rect.width()));
-			}
-		}
-	}
+	void sevenWhitelistActionsUseThreeColumnsAtWideMeasuredWidth() {
+		WorkshopLabelEditorLayout layout = whitelistLayout(280, 300, 0);
 
-	@Test
-	void shortNarrowWhitelistFallsBackToTwoColumnsWithoutOverlap() {
-		WorkshopLabelEditorLayout layout = WorkshopLabelEditorLayout.calculate(
-			new WorkshopSidebarMetrics.Rect(5, 5, 154, 252), 54, 3, 7, 2
-		);
+		assertEquals(7, layout.actionButtons().size());
+		assertEquals(3, distinctRows(layout.actionButtons()));
 		assertNoOverlap(layout.actionButtons());
+		layout.actionButtons().forEach(rect -> assertInside(rect, layout.content()));
+	}
+
+	@Test
+	void mediumWidthUsesTwoColumnsForMeasuredActionTexts() {
+		WorkshopLabelEditorLayout layout = whitelistLayout(210, 300, 0);
+
+		assertEquals(4, distinctRows(layout.actionButtons()));
+		assertNoOverlap(layout.actionButtons());
+	}
+
+	@Test
+	void narrowMeasuredLayoutNeverOverlapsOrLeavesContentBounds() {
+		WorkshopLabelEditorLayout layout = whitelistLayout(154, 260, 2);
+
+		assertNoOverlap(layout.modeButtons());
+		assertNoOverlap(layout.actionButtons());
+		layout.modeButtons().forEach(rect -> assertInside(rect, layout.content()));
+		layout.actionButtons().forEach(rect -> assertInside(rect, layout.content()));
 		assertFalse(layout.modeArea().intersects(layout.actionArea()));
-		assertTrue(layout.actionButtons().stream().allMatch(rect -> rect.width() < layout.content().width()));
+	}
+
+	@Test
+	void veryShortNarrowLayoutClipsFlexibleAreasBeforeBottomButtons() {
+		WorkshopLabelEditorLayout layout = whitelistLayout(154, 184, 0);
+
+		assertFalse(layout.modeArea().intersects(layout.actionArea()));
+		assertTrue(layout.currentArea().bottom() <= layout.actionArea().top());
+		assertTrue(layout.listArea().bottom() <= layout.actionArea().top());
+		layout.actionButtons().forEach(rect -> assertInside(rect, layout.content()));
+	}
+
+	@Test
+	void screenshotSizedWideWhitelistKeepsAtLeastFourCompleteRows() {
+		WorkshopLabelEditorLayout layout = whitelistLayout(280, 300, 3);
+
+		assertTrue(layout.listArea().height() >= 4 * 26, () -> "list height was " + layout.listArea().height());
+		assertFalse(layout.verticalScroll());
 	}
 
 	@Test
@@ -124,6 +137,19 @@ class WorkshopResponsiveLayoutTest {
 		assertEquals(18, WorkshopTextLayout.heightForLines(2, 4, 9));
 		assertEquals(27, WorkshopTextLayout.heightForLines(8, 3, 9));
 		assertEquals(0, WorkshopTextLayout.heightForLines(0, 3, 9));
+	}
+
+	private static WorkshopLabelEditorLayout whitelistLayout(int width, int height, int statusLines) {
+		return WorkshopLabelEditorLayout.calculate(
+			new WorkshopSidebarMetrics.Rect(5, 5, width, height), 44,
+			List.of(50, 50, 70),
+			List.of(80, 60, 80, 80, 40, 55, 40),
+			statusLines, true, 26
+		);
+	}
+
+	private static long distinctRows(List<WorkshopSidebarMetrics.Rect> rectangles) {
+		return rectangles.stream().map(WorkshopSidebarMetrics.Rect::top).distinct().count();
 	}
 
 	private static void assertNoOverlap(List<WorkshopSidebarMetrics.Rect> rectangles) {

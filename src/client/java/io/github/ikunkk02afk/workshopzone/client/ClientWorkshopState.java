@@ -23,6 +23,7 @@ import java.util.Map;
 public final class ClientWorkshopState {
 	private static final Map<Identifier, ItemStack> ICON_CACHE = new HashMap<>();
 	private static final Map<Identifier, ItemStack> LABEL_ICON_CACHE = new HashMap<>();
+	private static final Identifier BARRIER_ID = Identifier.ofVanilla("barrier");
 
 	private static ClientWorkshopSnapshot current;
 	private static long acceptedSessionId = -1;
@@ -87,11 +88,7 @@ public final class ClientWorkshopState {
 				entry.container(), entry.workstation(), entry.customName().isPresent(), name,
 				ICON_CACHE.computeIfAbsent(entry.blockId(), id -> createIcon(block)),
 				entry.labelSummary(),
-				entry.labelSummary().unavailable()
-					? new ItemStack(Items.BARRIER)
-					: entry.labelSummary().representativeItemId()
-					.map(id -> LABEL_ICON_CACHE.computeIfAbsent(id, ClientWorkshopState::createItemIcon))
-					.orElse(ItemStack.EMPTY)
+				labelIcons(entry.labelSummary())
 			));
 		}
 
@@ -155,6 +152,17 @@ public final class ClientWorkshopState {
 
 	private static ItemStack createItemIcon(Identifier id) {
 		Item item = Registries.ITEM.getOrEmpty(id).orElse(Items.BARRIER);
-		return new ItemStack(item);
+		return new ItemStack(item == Items.AIR ? Items.BARRIER : item);
+	}
+
+	static ItemStack labelIcon(Identifier id) {
+		return LABEL_ICON_CACHE.computeIfAbsent(id, ClientWorkshopState::createItemIcon);
+	}
+
+	private static List<ItemStack> labelIcons(io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary summary) {
+		if (summary.unavailable() && summary.previewItemIds().isEmpty()) {
+			return List.of(labelIcon(BARRIER_ID));
+		}
+		return summary.previewItemIds().stream().map(ClientWorkshopState::labelIcon).toList();
 	}
 }
