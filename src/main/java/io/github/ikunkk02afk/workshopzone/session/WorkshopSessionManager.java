@@ -3,6 +3,8 @@ package io.github.ikunkk02afk.workshopzone.session;
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.api.WorkshopRemoteOpenCallback;
 import io.github.ikunkk02afk.workshopzone.api.ContainerLabelEditCallback;
+import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftPreviewResultCode;
+import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftService;
 import io.github.ikunkk02afk.workshopzone.deposit.WorkshopDepositService;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntry;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntryType;
@@ -18,6 +20,7 @@ import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsEntry;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResult;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelOperation;
+import io.github.ikunkk02afk.workshopzone.network.ConfirmWorkshopCraftPayload;
 import io.github.ikunkk02afk.workshopzone.network.DepositWorkshopItemsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
 import io.github.ikunkk02afk.workshopzone.network.RequestContainerLabelDetailsPayload;
@@ -27,6 +30,8 @@ import io.github.ikunkk02afk.workshopzone.network.SearchWorkshopItemPayload;
 import io.github.ikunkk02afk.workshopzone.network.UpdateContainerLabelPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemCatalogPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopCraftExecutionResultPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopCraftPreviewPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworking;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopAreaScanner;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockCatalog;
@@ -95,6 +100,7 @@ public final class WorkshopSessionManager {
 	private final WorkshopDepositService depositService = new WorkshopDepositService(this);
 	private final WorkshopItemSearchService itemSearchService = new WorkshopItemSearchService(this);
 	private final WorkshopItemCatalogService itemCatalogService = new WorkshopItemCatalogService(this);
+	private final WorkshopCraftService craftService = new WorkshopCraftService(this);
 	private final Map<UUID, Long> lastOpenRequestTicks = new HashMap<>();
 	private final Map<UUID, Long> lastLabelEditTicks = new HashMap<>();
 	private final Map<UUID, Long> lastTagQueryTicks = new HashMap<>();
@@ -135,6 +141,7 @@ public final class WorkshopSessionManager {
 		ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, resourceManager, success) -> {
 			if (success) {
 				ContainerItemTags.clearReloadableCaches();
+				craftService.clearAll();
 			}
 		});
 		ServerTickEvents.END_SERVER_TICK.register(this::onServerTick);
@@ -395,6 +402,7 @@ public final class WorkshopSessionManager {
 			WorkshopAreaScanner.DEFAULT_HORIZONTAL_RADIUS, WorkshopAreaScanner.DEFAULT_VERTICAL_RADIUS
 		);
 		WorkshopSession updated = session.labelEdited(result);
+		craftService.clear(player);
 		sessions.put(updated);
 		WorkshopNetworking.sendSnapshot(player, updated);
 		ContainerLabelEditResult success = switch (requestedRule.mode()) {
@@ -447,6 +455,7 @@ public final class WorkshopSessionManager {
 	}
 
 	private WorkshopSession createAndSendSession(ServerPlayerEntity player, BlockPos center, WorkshopBlockType type) {
+		craftService.clear(player);
 		if (!matchesHandler(type, player.currentScreenHandler)) {
 			return null;
 		}
@@ -509,6 +518,7 @@ public final class WorkshopSessionManager {
 			WorkshopAreaScanner.DEFAULT_HORIZONTAL_RADIUS, WorkshopAreaScanner.DEFAULT_VERTICAL_RADIUS
 		);
 		WorkshopSession refreshed = session.refreshed(now, result);
+		craftService.clear(player);
 		sessions.put(refreshed);
 		WorkshopNetworking.sendSnapshot(player, refreshed);
 	}
@@ -534,6 +544,33 @@ public final class WorkshopSessionManager {
 	) {
 		WorkshopItemCatalogPayload result = itemCatalogService.catalog(player, request);
 		WorkshopNetworking.sendItemCatalog(player, result);
+		return result;
+	}
+
+	public boolean previewCraft(
+		ServerPlayerEntity player,
+		int syncId,
+		Identifier recipeId,
+		boolean craftAll
+	) {
+		WorkshopCraftPreviewPayload result = craftService.preview(player, syncId, recipeId, craftAll);
+		if (result.resultId() == WorkshopCraftPreviewResultCode.NOT_NEEDED) {
+			return false;
+		}
+		WorkshopNetworking.sendCraftPreview(player, result);
+		if (result.resultId().translationKey() != null) {
+			player.sendMessage(Text.translatable(result.resultId().translationKey()), true);
+		}
+		return result.resultId().cancelsVanillaRequest();
+	}
+
+	public WorkshopCraftExecutionResultPayload confirmCraft(
+		ServerPlayerEntity player,
+		ConfirmWorkshopCraftPayload request
+	) {
+		WorkshopCraftExecutionResultPayload result = craftService.confirm(player, request);
+		WorkshopNetworking.sendCraftExecutionResult(player, result);
+		player.sendMessage(Text.translatable(result.resultId().translationKey()), true);
 		return result;
 	}
 
@@ -655,6 +692,7 @@ public final class WorkshopSessionManager {
 	}
 
 	public void clear(ServerPlayerEntity player, boolean notifyClient) {
+		craftService.clear(player);
 		WorkshopSession removed = sessions.remove(player.getUuid());
 		if (removed != null && notifyClient) {
 			WorkshopNetworking.sendClear(player, removed);
@@ -691,6 +729,7 @@ public final class WorkshopSessionManager {
 			WorkshopAreaScanner.DEFAULT_HORIZONTAL_RADIUS, WorkshopAreaScanner.DEFAULT_VERTICAL_RADIUS
 		);
 		WorkshopSession refreshed = session.refreshed(player.getServerWorld().getTime(), result);
+		craftService.clear(player);
 		sessions.put(refreshed);
 		WorkshopNetworking.sendSnapshot(player, refreshed);
 	}
@@ -705,6 +744,7 @@ public final class WorkshopSessionManager {
 	}
 
 	private void onServerTick(MinecraftServer server) {
+		craftService.tick(server.getOverworld().getTime());
 		if (++cleanupTicker < 20) {
 			return;
 		}

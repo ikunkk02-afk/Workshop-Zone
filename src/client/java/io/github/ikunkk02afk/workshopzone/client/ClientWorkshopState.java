@@ -96,6 +96,7 @@ public final class ClientWorkshopState {
 
 		acceptedSessionId = payload.sessionId();
 		acceptedRevision = payload.revision();
+		ClientWorkshopCraftState.clearForSession(payload.sessionId(), payload.revision(), payload.syncId());
 		loaded = true;
 		cleared = false;
 		current = new ClientWorkshopSnapshot(
@@ -124,6 +125,7 @@ public final class ClientWorkshopState {
 			loaded = false;
 			cleared = true;
 			ClientWorkshopSearchState.resetConnection();
+			ClientWorkshopCraftState.reset();
 		}
 	}
 
@@ -147,6 +149,7 @@ public final class ClientWorkshopState {
 		ClientItemTagState.reset();
 		ClientDepositState.reset();
 		ClientWorkshopSearchState.resetConnection();
+		ClientWorkshopCraftState.reset();
 		WorkshopScreenController.highlights().clear();
 	}
 

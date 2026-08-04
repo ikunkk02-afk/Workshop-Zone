@@ -8,7 +8,8 @@
 		"fabric-gametest": [
 			"io.github.ikunkk02afk.workshopzone.scan.WorkshopAreaScannerGameTests",
 			"io.github.ikunkk02afk.workshopzone.label.ContainerLabelGameTests",
-			"io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchGameTests"
+			"io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchGameTests",
+			"io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftGameTests"
 		]
 	},
 	"depends": {

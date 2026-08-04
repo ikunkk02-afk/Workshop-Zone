@@ -9,12 +9,16 @@
     "DoubleInventoryMixin",
     "LockableContainerBlockEntityMixin",
     "ScreenHandlerMixin",
+    "ServerPlayNetworkHandlerMixin",
     "ServerPlayerEntityMixin",
     "ServerPlayerInteractionManagerMixin",
     "SlotMixin"
   ],
   "client": [
-    "client.HandledScreenAccessor"
+    "client.HandledScreenAccessor",
+    "client.CraftingConfirmationInputMixin",
+    "client.CraftingConfirmationRenderMixin",
+    "client.ClientRecipeReloadMixin"
   ],
   "injectors": {
     "defaultRequire": 1

@@ -85,6 +85,13 @@ public final class WorkshopScreenController {
 		}
 	}
 
+	public void closeTransientUiForCraftConfirmation() {
+		closeSearch();
+		if (sidebar != null) {
+			sidebar.closeTransientUiForCraftConfirmation();
+		}
+	}
+
 	public void updatePlacement(WorkshopSidebarPlacement placement, boolean expanded) {
 		this.placement = placement;
 		this.layout = WorkshopSearchLayout.calculate(placement.panel());

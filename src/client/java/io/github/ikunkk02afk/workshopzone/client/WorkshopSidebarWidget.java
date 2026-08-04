@@ -581,6 +581,20 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		return Optional.of(sidebarPlacement);
 	}
 
+	public void closeTransientUiForCraftConfirmation() {
+		positionMenuOpen = false;
+		labelEditor = false;
+		candidateItemId = null;
+		selectedTagId = null;
+		if (dragState.dragging()) {
+			WorkshopSidebarMetrics.Rect original = dragState.cancelDrag();
+			draggedPanel = null;
+			if (original != null) {
+				applyPanelBounds(original);
+			}
+		}
+	}
+
 	private boolean updateBounds(ClientWorkshopSnapshot snapshot, TextRenderer renderer) {
 		HandledScreenAccessor accessor = (HandledScreenAccessor)screen;
 		int guiX = accessor.workshopZone$getX();

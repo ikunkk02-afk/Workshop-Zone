@@ -40,7 +40,29 @@ public final class WorkshopScreenIntegration {
 			);
 			controller.attachSidebar(sidebar);
 			Screens.getButtons(screen).add(controller.searchField());
+			WorkshopCraftConfirmationOverlay craftOverlay = screen instanceof CraftingScreen craftingScreen
+				? new WorkshopCraftConfirmationOverlay(craftingScreen, controller) : null;
+			if (craftOverlay != null) {
+				WorkshopCraftInputOverlayRegistry.put(screen, craftOverlay);
+				ScreenEvents.afterTick(screen).register(current -> ClientWorkshopCraftState.onScreenChanged(current));
+				ScreenMouseEvents.allowMouseScroll(screen).register((current, horizontal, vertical, mouseX, mouseY) -> {
+					if (!ClientWorkshopCraftState.isVisible()) {
+						return true;
+					}
+					craftOverlay.mouseScrolled(horizontal, vertical);
+					return false;
+				});
+				ScreenMouseEvents.allowMouseRelease(screen).register((current, mouseX, mouseY, button) ->
+					!ClientWorkshopCraftState.isVisible()
+				);
+			}
 			ScreenKeyboardEvents.allowKeyPress(screen).register((current, key, scanCode, modifiers) -> {
+				if (current instanceof CraftingScreen && ClientWorkshopCraftState.isVisible()) {
+					if (key == 256) {
+						ClientWorkshopCraftState.cancel(client);
+					}
+					return false;
+				}
 				if (!controller.shouldCaptureKey(key)) {
 					return true;
 				}
@@ -60,6 +82,8 @@ public final class WorkshopScreenIntegration {
 					removed.getClass().getName(), handledScreen.getScreenHandler().syncId
 				);
 				controller.removed();
+				WorkshopCraftInputOverlayRegistry.remove(screen);
+				ClientWorkshopCraftState.onScreenChanged(null);
 				WorkshopSidebarPlacementRegistry.remove(handledScreen);
 				ClientWorkshopState.clearForScreen(handledScreen.getScreenHandler().syncId);
 			});

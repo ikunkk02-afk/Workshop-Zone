@@ -9,6 +9,9 @@ public interface HandledScreenAccessor {
 	@Accessor("x")
 	int workshopZone$getX();
 
+	@Accessor("x")
+	void workshopZone$setX(int x);
+
 	@Accessor("y")
 	int workshopZone$getY();
 

@@ -39,6 +39,8 @@ public final class WorkshopNetworking {
 		PayloadTypeRegistry.playS2C().register(WorkshopDepositResultPayload.ID, WorkshopDepositResultPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(WorkshopItemSearchResultPayload.ID, WorkshopItemSearchResultPayload.CODEC);
 		PayloadTypeRegistry.playS2C().register(WorkshopItemCatalogPayload.ID, WorkshopItemCatalogPayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(WorkshopCraftPreviewPayload.ID, WorkshopCraftPreviewPayload.CODEC);
+		PayloadTypeRegistry.playS2C().register(WorkshopCraftExecutionResultPayload.ID, WorkshopCraftExecutionResultPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopRefreshPayload.ID, RequestWorkshopRefreshPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(OpenWorkshopTargetPayload.ID, OpenWorkshopTargetPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(UpdateContainerLabelPayload.ID, UpdateContainerLabelPayload.CODEC);
@@ -47,6 +49,7 @@ public final class WorkshopNetworking {
 		PayloadTypeRegistry.playC2S().register(DepositWorkshopItemsPayload.ID, DepositWorkshopItemsPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(SearchWorkshopItemPayload.ID, SearchWorkshopItemPayload.CODEC);
 		PayloadTypeRegistry.playC2S().register(RequestWorkshopItemCatalogPayload.ID, RequestWorkshopItemCatalogPayload.CODEC);
+		PayloadTypeRegistry.playC2S().register(ConfirmWorkshopCraftPayload.ID, ConfirmWorkshopCraftPayload.CODEC);
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestWorkshopRefreshPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().refresh(
@@ -82,6 +85,10 @@ public final class WorkshopNetworking {
 		ServerPlayNetworking.registerGlobalReceiver(
 			RequestWorkshopItemCatalogPayload.ID,
 			(payload, context) -> WorkshopSessionManager.getInstance().requestItemCatalog(context.player(), payload)
+		);
+		ServerPlayNetworking.registerGlobalReceiver(
+			ConfirmWorkshopCraftPayload.ID,
+			(payload, context) -> WorkshopSessionManager.getInstance().confirmCraft(context.player(), payload)
 		);
 	}
 
@@ -160,6 +167,14 @@ public final class WorkshopNetworking {
 	}
 
 	public static void sendItemCatalog(ServerPlayerEntity player, WorkshopItemCatalogPayload payload) {
+		ServerPlayNetworking.send(player, payload);
+	}
+
+	public static void sendCraftPreview(ServerPlayerEntity player, WorkshopCraftPreviewPayload payload) {
+		ServerPlayNetworking.send(player, payload);
+	}
+
+	public static void sendCraftExecutionResult(ServerPlayerEntity player, WorkshopCraftExecutionResultPayload payload) {
 		ServerPlayNetworking.send(player, payload);
 	}
 

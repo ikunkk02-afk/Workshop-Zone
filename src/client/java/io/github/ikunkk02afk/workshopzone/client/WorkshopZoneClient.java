@@ -16,6 +16,8 @@ import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemCatalogPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopCraftExecutionResultPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopCraftPreviewPayload;
 
 public class WorkshopZoneClient implements ClientModInitializer {
 	@Override
@@ -30,9 +32,10 @@ public class WorkshopZoneClient implements ClientModInitializer {
 
 			@Override
 			public void reload(ResourceManager manager) {
-				net.minecraft.client.MinecraftClient.getInstance().execute(
-					ClientWorkshopSearchState::refreshLocalizedCandidates
-				);
+				net.minecraft.client.MinecraftClient.getInstance().execute(() -> {
+					ClientWorkshopSearchState.refreshLocalizedCandidates();
+					ClientWorkshopCraftState.reset();
+				});
 			}
 		});
 		WorkshopHighlightRenderer.register();
@@ -67,8 +70,22 @@ public class WorkshopZoneClient implements ClientModInitializer {
 			WorkshopItemCatalogPayload.ID,
 			(payload, context) -> context.client().execute(() -> ClientWorkshopSearchState.acceptCatalogNetwork(payload))
 		);
-		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> ClientWorkshopState.resetConnection());
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientWorkshopState.resetConnection());
+		ClientPlayNetworking.registerGlobalReceiver(
+			WorkshopCraftPreviewPayload.ID,
+			(payload, context) -> context.client().execute(() -> ClientWorkshopCraftState.acceptPreview(context.client(), payload))
+		);
+		ClientPlayNetworking.registerGlobalReceiver(
+			WorkshopCraftExecutionResultPayload.ID,
+			(payload, context) -> context.client().execute(() -> ClientWorkshopCraftState.acceptExecution(context.client(), payload))
+		);
+		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
+			ClientWorkshopState.resetConnection();
+			ClientWorkshopCraftState.reset();
+		});
+		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+			ClientWorkshopState.resetConnection();
+			ClientWorkshopCraftState.reset();
+		});
 		WorkshopScreenIntegration.register();
 		WorkshopZone.LOGGER.debug("Workshop Zone client initialization complete");
 	}
