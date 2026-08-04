@@ -125,7 +125,7 @@ public final class ClientWorkshopState {
 			loaded = false;
 			cleared = true;
 			ClientWorkshopSearchState.resetConnection();
-			ClientWorkshopCraftState.reset();
+			ClientWorkshopCraftState.resetConnection();
 		}
 	}
 
@@ -133,6 +133,7 @@ public final class ClientWorkshopState {
 		if (current != null && current.syncId() == syncId) {
 			current = null;
 			loaded = false;
+			ClientWorkshopCraftState.resetConnection();
 		}
 	}
 
@@ -149,7 +150,7 @@ public final class ClientWorkshopState {
 		ClientItemTagState.reset();
 		ClientDepositState.reset();
 		ClientWorkshopSearchState.resetConnection();
-		ClientWorkshopCraftState.reset();
+		ClientWorkshopCraftState.resetConnection();
 		WorkshopScreenController.highlights().clear();
 	}
 

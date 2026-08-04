@@ -13,7 +13,10 @@ public final class WorkshopCraftInputOverlayRegistry {
 	}
 
 	public static void put(Screen screen, WorkshopCraftConfirmationOverlay overlay) {
-		OVERLAYS.put(screen, overlay);
+		WorkshopCraftConfirmationOverlay replaced = OVERLAYS.put(screen, overlay);
+		if (replaced != null && replaced != overlay) {
+			replaced.removed();
+		}
 		currentScreen = screen;
 	}
 
@@ -22,7 +25,10 @@ public final class WorkshopCraftInputOverlayRegistry {
 	}
 
 	public static void remove(Screen screen) {
-		OVERLAYS.remove(screen);
+		WorkshopCraftConfirmationOverlay removed = OVERLAYS.remove(screen);
+		if (removed != null) {
+			removed.removed();
+		}
 		if (currentScreen == screen) {
 			currentScreen = null;
 		}

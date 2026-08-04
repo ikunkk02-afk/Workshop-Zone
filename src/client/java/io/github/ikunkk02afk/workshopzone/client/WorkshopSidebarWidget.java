@@ -22,6 +22,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
+import net.minecraft.client.gui.screen.ingame.CraftingScreen;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.screen.narration.NarrationMessageBuilder;
 import net.minecraft.client.gui.screen.narration.NarrationPart;
@@ -151,6 +152,10 @@ public final class WorkshopSidebarWidget extends ClickableWidget {
 		}
 		TextRenderer textRenderer = MinecraftClient.getInstance().textRenderer;
 		if (!updateBounds(snapshot, textRenderer)) {
+			active = false;
+			return;
+		}
+		if (screen instanceof CraftingScreen && ClientWorkshopCraftState.isVisible()) {
 			active = false;
 			return;
 		}

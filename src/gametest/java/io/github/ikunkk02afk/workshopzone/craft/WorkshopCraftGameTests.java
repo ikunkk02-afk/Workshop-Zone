@@ -168,6 +168,19 @@ public final class WorkshopCraftGameTests implements FabricGameTest {
 	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void recipeRevokedAfterPreviewRejectsConfirmation(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.OAK_PLANKS, 4));
+		WorkshopCraftPreviewPayload preview = preview(fixture, CRAFTING_TABLE_RECIPE);
+		RecipeEntry<?> recipe = fixture.player.getServer().getRecipeManager().get(CRAFTING_TABLE_RECIPE).orElseThrow();
+		fixture.player.lockRecipes(List.of(recipe));
+		WorkshopCraftExecutionResultPayload result = confirm(fixture, preview);
+		context.assertEquals(result.resultId(), WorkshopCraftExecutionResultCode.RECIPE_CHANGED, "A recipe removed after preview must not be filled");
+		context.assertEquals(4, fixture.container.inventory().count(Items.OAK_PLANKS), "Revoked recipe must not extract storage");
+		context.assertEquals(0, gridCount(fixture.handler), "Revoked recipe must not fill the grid");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
 	public void componentBearingMaterialKeepsItsComponentsInGrid(TestContext context) {
 		ItemStack named = new ItemStack(Items.OAK_PLANKS, 4);
 		named.set(DataComponentTypes.CUSTOM_NAME, Text.literal("Workshop material"));

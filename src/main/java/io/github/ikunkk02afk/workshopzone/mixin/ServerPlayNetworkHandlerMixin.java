@@ -19,7 +19,14 @@ public abstract class ServerPlayNetworkHandlerMixin {
 	@Shadow
 	public ServerPlayerEntity player;
 
-	@Inject(method = "onCraftRequest", at = @At("HEAD"), cancellable = true)
+	@Inject(
+		method = "onCraftRequest",
+		at = @At(
+			value = "INVOKE",
+			target = "Lnet/minecraft/server/MinecraftServer;getRecipeManager()Lnet/minecraft/recipe/RecipeManager;"
+		),
+		cancellable = true
+	)
 	private void interceptCraftRequest(CraftRequestC2SPacket packet, CallbackInfo ci) {
 		if (this.player == null) return;
 		if (!(this.player.currentScreenHandler instanceof CraftingScreenHandler)) return;

@@ -80,11 +80,9 @@ public class WorkshopZoneClient implements ClientModInitializer {
 		);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> {
 			ClientWorkshopState.resetConnection();
-			ClientWorkshopCraftState.reset();
 		});
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			ClientWorkshopState.resetConnection();
-			ClientWorkshopCraftState.reset();
 		});
 		WorkshopScreenIntegration.register();
 		WorkshopZone.LOGGER.debug("Workshop Zone client initialization complete");

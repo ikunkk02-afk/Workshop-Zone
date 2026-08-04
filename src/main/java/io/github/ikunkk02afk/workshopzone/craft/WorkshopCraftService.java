@@ -67,7 +67,8 @@ public final class WorkshopCraftService {
 		} catch (RuntimeException exception) {
 			WorkshopZone.LOGGER.debug("Could not safely inspect vanilla player recipe availability for {}", recipeId, exception);
 		}
-		if (!(player.currentScreenHandler instanceof CraftingScreenHandler handler)
+		if (player.isSpectator()
+			|| !(player.currentScreenHandler instanceof CraftingScreenHandler handler)
 			|| handler.syncId != syncId || !handler.canUse(player)) {
 			return failure(session, syncId, recipeId, WorkshopCraftPreviewResultCode.INVALID_SESSION, ItemStack.EMPTY);
 		}
@@ -155,7 +156,8 @@ public final class WorkshopCraftService {
 				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(), result
 			);
 		}
-		if (session.openedBlockType() != WorkshopBlockType.CRAFTING_TABLE
+		if (player.isSpectator()
+			|| session.openedBlockType() != WorkshopBlockType.CRAFTING_TABLE
 			|| sessions.validate(player, session) != WorkshopSessionValidation.VALID
 			|| !(player.currentScreenHandler instanceof CraftingScreenHandler handler)
 			|| !handler.canUse(player)) {
@@ -171,6 +173,12 @@ public final class WorkshopCraftService {
 			);
 		}
 		RecipeEntry<?> currentEntry = player.getServer().getRecipeManager().get(confirmation.recipeId()).orElse(null);
+		if (currentEntry == null || !player.getRecipeBook().contains(currentEntry)) {
+			return executionFailure(
+				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
+				WorkshopCraftExecutionResultCode.RECIPE_CHANGED
+			);
+		}
 		WorkshopCraftParsedRecipe parsed = WorkshopCraftRecipeParser.parse(
 			currentEntry, player.getServerWorld().getRegistryManager()
 		).orElse(null);
