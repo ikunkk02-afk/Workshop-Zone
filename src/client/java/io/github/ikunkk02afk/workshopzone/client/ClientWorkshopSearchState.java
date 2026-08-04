@@ -19,9 +19,9 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 public final class ClientWorkshopSearchState {
+	private static final int MAX_AUTOMATIC_CATALOG_RETRIES = 1;
 	private static boolean searchMode;
 	private static String searchText = "";
 	private static List<WorkshopItemCandidate> candidates = List.of();
@@ -35,6 +35,7 @@ public final class ClientWorkshopSearchState {
 	private static long pendingSessionId = -1;
 	private static long pendingRevision = -1;
 	private static int pendingSyncId = -1;
+	private static Identifier pendingTargetItemId;
 	private static long currentSessionId = -1;
 	private static long currentRevision = -1;
 	private static int currentSyncId = -1;
@@ -52,6 +53,7 @@ public final class ClientWorkshopSearchState {
 	private static WorkshopItemCatalogResultCode catalogError;
 	private static long catalogSequence;
 	private static long catalogRetryAtMillis;
+	private static int catalogRetryCount;
 	private static Identifier refreshSelectedItemId;
 	private static WorkshopItemCandidate pendingDetailedRefreshCandidate;
 	private static boolean inventoryChangedNotice;
@@ -88,6 +90,10 @@ public final class ClientWorkshopSearchState {
 			WorkshopZone.LOGGER.debug("Workshop search mode closed for session {} syncId {}", currentSessionId, currentSyncId);
 		}
 		searchMode = false;
+		selectedItem = null;
+		clearServerResult();
+		pendingDetailedRefreshCandidate = null;
+		invalidateCatalog(false);
 	}
 
 	public static void synchronizeSnapshot(ClientWorkshopSnapshot snapshot) {
@@ -132,12 +138,27 @@ public final class ClientWorkshopSearchState {
 	}
 
 	public static RequestWorkshopItemCatalogPayload requestCatalog(ClientWorkshopSnapshot snapshot, boolean refreshSelected) {
-		if (snapshot == null) {
+		return requestCatalog(snapshot, refreshSelected, false);
+	}
+
+	static RequestWorkshopItemCatalogPayload retryCatalog(ClientWorkshopSnapshot snapshot, boolean refreshSelected) {
+		return requestCatalog(snapshot, refreshSelected, true);
+	}
+
+	private static RequestWorkshopItemCatalogPayload requestCatalog(
+		ClientWorkshopSnapshot snapshot,
+		boolean refreshSelected,
+		boolean automaticRetry
+	) {
+		if (snapshot == null || catalogLoading || pending
+			|| automaticRetry && catalogRetryCount >= MAX_AUTOMATIC_CATALOG_RETRIES) {
 			return null;
 		}
 		boolean wasReady = catalogReady;
+		int nextRetryCount = automaticRetry ? catalogRetryCount + 1 : 0;
 		refreshSelectedItemId = refreshSelected && selectedItem != null ? selectedItem.itemId() : null;
 		invalidateCatalog(true);
+		catalogRetryCount = nextRetryCount;
 		catalogRefreshing = refreshSelected || wasReady;
 		catalogLoading = true;
 		catalogRequestId = nextCatalogRequestId();
@@ -158,8 +179,14 @@ public final class ClientWorkshopSearchState {
 	}
 
 	public static boolean shouldRequestCatalog(ClientWorkshopSnapshot snapshot) {
+		return shouldRequestCatalog(snapshot, Util.getMeasuringTimeMs());
+	}
+
+	static boolean shouldRequestCatalog(ClientWorkshopSnapshot snapshot, long nowMillis) {
 		return searchMode && snapshot != null && !catalogLoading && !catalogReady
-			&& Util.getMeasuringTimeMs() >= catalogRetryAtMillis;
+			&& !pending && nowMillis >= catalogRetryAtMillis
+			&& (catalogError != WorkshopItemCatalogResultCode.COOLDOWN
+				|| catalogRetryCount < MAX_AUTOMATIC_CATALOG_RETRIES);
 	}
 
 	public static void acceptCatalogNetwork(WorkshopItemCatalogPayload payload) {
@@ -192,6 +219,7 @@ public final class ClientWorkshopSearchState {
 			catalogEntries = List.copyOf(payload.entries());
 			catalogTruncated = payload.truncated();
 			catalogRetryAtMillis = Long.MAX_VALUE;
+			catalogRetryCount = 0;
 			recomputeCandidates(true);
 			if (refreshSelectedItemId != null) {
 				pendingDetailedRefreshCandidate = candidates.stream()
@@ -278,6 +306,7 @@ public final class ClientWorkshopSearchState {
 		catalogTruncated = false;
 		catalogError = null;
 		catalogRetryAtMillis = 0;
+		catalogRetryCount = 0;
 		candidates = List.of();
 		candidatesTruncated = false;
 		selectedCandidateIndex = -1;
@@ -288,7 +317,7 @@ public final class ClientWorkshopSearchState {
 	}
 
 	public static SearchWorkshopItemPayload selectCandidate(WorkshopItemCandidate candidate, ClientWorkshopSnapshot snapshot) {
-		if (candidate == null || snapshot == null || !catalogReady
+		if (candidate == null || snapshot == null || pending || catalogLoading || !catalogReady
 			|| catalogEntries.stream().noneMatch(entry -> entry.itemId().equals(candidate.itemId()))) {
 			return null;
 		}
@@ -298,6 +327,7 @@ public final class ClientWorkshopSearchState {
 		pendingSessionId = snapshot.sessionId();
 		pendingRevision = snapshot.revision();
 		pendingSyncId = snapshot.syncId();
+		pendingTargetItemId = candidate.itemId();
 		result = null;
 		error = null;
 		resultScrollOffset = 0;
@@ -322,7 +352,7 @@ public final class ClientWorkshopSearchState {
 		observedNetworkSequence = networkSequence;
 		WorkshopItemSearchResultPayload payload = networkResult;
 		if (!WorkshopItemSearchResultFilter.matches(
-			payload, pendingRequestId, snapshot.sessionId(), snapshot.revision(), snapshot.syncId()
+			payload, pendingRequestId, snapshot.sessionId(), snapshot.revision(), snapshot.syncId(), pendingTargetItemId
 		)) {
 			WorkshopZone.LOGGER.debug(
 				"Rejected stale workshop item search result requestId {} for pending requestId {}",
@@ -343,14 +373,13 @@ public final class ClientWorkshopSearchState {
 		for (ClientWorkshopEntry entry : snapshot.entries()) {
 			entries.put(entry.position(), entry);
 		}
-		Set<BlockPos> positions = entries.keySet();
-		List<WorkshopItemSearchContainerResult> existing = WorkshopItemSearchResultFilter.filterExisting(payload.results(), positions);
-		List<ClientWorkshopContainerSearchResult> clientResults = new ArrayList<>(existing.size());
-		for (WorkshopItemSearchContainerResult serverResult : existing) {
+		List<ClientWorkshopContainerSearchResult> clientResults = new ArrayList<>(payload.results().size());
+		for (WorkshopItemSearchContainerResult serverResult : payload.results()) {
 			ClientWorkshopEntry entry = entries.get(serverResult.representativePosition());
-			if (entry != null) {
-				clientResults.add(new ClientWorkshopContainerSearchResult(serverResult, entry));
+			if (entry == null) {
+				entry = ClientWorkshopState.entryForSearchResult(serverResult);
 			}
+			clientResults.add(new ClientWorkshopContainerSearchResult(serverResult, entry));
 		}
 		if (payload.resultId() == WorkshopItemSearchResultCode.SUCCESS) {
 			result = new ClientWorkshopSearchResult(
@@ -436,6 +465,7 @@ public final class ClientWorkshopSearchState {
 		pendingSessionId = -1;
 		pendingRevision = -1;
 		pendingSyncId = -1;
+		pendingTargetItemId = null;
 		result = null;
 		error = null;
 		resultScrollOffset = 0;
@@ -461,6 +491,7 @@ public final class ClientWorkshopSearchState {
 		catalogTruncated = false;
 		catalogError = null;
 		catalogRetryAtMillis = 0;
+		catalogRetryCount = 0;
 		refreshSelectedItemId = null;
 		pendingDetailedRefreshCandidate = null;
 		inventoryChangedNotice = false;

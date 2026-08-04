@@ -1,10 +1,12 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
+import io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary;
 import io.github.ikunkk02afk.workshopzone.network.ClearWorkshopSessionPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopNetworkEntry;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotOrder;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotPayload;
+import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchContainerResult;
 import net.minecraft.block.Block;
 import net.minecraft.block.Blocks;
 import net.minecraft.client.MinecraftClient;
@@ -162,7 +164,16 @@ public final class ClientWorkshopState {
 		return LABEL_ICON_CACHE.computeIfAbsent(id, ClientWorkshopState::createItemIcon);
 	}
 
-	private static List<ItemStack> labelIcons(io.github.ikunkk02afk.workshopzone.label.ContainerLabelSummary summary) {
+	static ClientWorkshopEntry entryForSearchResult(WorkshopItemSearchContainerResult result) {
+		Block block = Registries.BLOCK.getOrEmpty(result.blockId()).orElse(Blocks.BARRIER);
+		return new ClientWorkshopEntry(
+			result.containerType(), result.representativePosition(), result.blockId(), result.distanceSquared(),
+			true, false, false, block.getName(), ICON_CACHE.computeIfAbsent(result.blockId(), id -> createIcon(block)),
+			ContainerLabelSummary.NONE, List.of()
+		);
+	}
+
+	private static List<ItemStack> labelIcons(ContainerLabelSummary summary) {
 		if (summary.unavailable() && summary.previewItemIds().isEmpty()) {
 			return List.of(labelIcon(BARRIER_ID));
 		}

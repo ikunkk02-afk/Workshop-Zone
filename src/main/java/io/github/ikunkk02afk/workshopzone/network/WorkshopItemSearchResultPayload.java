@@ -3,6 +3,7 @@ package io.github.ikunkk02afk.workshopzone.network;
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchContainerResult;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchResultCode;
+import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
 import io.netty.handler.codec.DecoderException;
 import net.minecraft.network.RegistryByteBuf;
 import net.minecraft.network.codec.PacketCodec;
@@ -63,6 +64,8 @@ public record WorkshopItemSearchResultPayload(
 		buf.writeVarInt(payload.results.size());
 		for (WorkshopItemSearchContainerResult result : payload.results) {
 			buf.writeBlockPos(result.representativePosition());
+			buf.writeIdentifier(result.containerType().networkId());
+			buf.writeIdentifier(result.blockId());
 			buf.writeVarInt(result.highlightPositions().size());
 			result.highlightPositions().forEach(buf::writeBlockPos);
 			buf.writeVarLong(result.containerItemCount());
@@ -91,6 +94,11 @@ public record WorkshopItemSearchResultPayload(
 		List<WorkshopItemSearchContainerResult> results = new ArrayList<>(resultCount);
 		for (int index = 0; index < resultCount; index++) {
 			BlockPos representative = buf.readBlockPos();
+			Identifier containerTypeId = buf.readIdentifier();
+			WorkshopBlockType containerType = WorkshopBlockType.fromNetworkId(containerTypeId)
+				.filter(WorkshopBlockType::isContainer)
+				.orElseThrow(() -> new DecoderException("Unknown workshop search container type: " + containerTypeId));
+			Identifier blockId = buf.readIdentifier();
 			int highlightCount = buf.readVarInt();
 			if (highlightCount < 1 || highlightCount > 2) {
 				throw new DecoderException("Invalid workshop highlight position count: " + highlightCount);
@@ -101,7 +109,7 @@ public record WorkshopItemSearchResultPayload(
 			}
 			try {
 				results.add(new WorkshopItemSearchContainerResult(
-					representative, highlights, buf.readVarLong(), buf.readVarInt(), buf.readDouble(),
+					containerType, blockId, representative, highlights, buf.readVarLong(), buf.readVarInt(), buf.readDouble(),
 					buf.readBoolean(), index
 				));
 			} catch (IllegalArgumentException exception) {

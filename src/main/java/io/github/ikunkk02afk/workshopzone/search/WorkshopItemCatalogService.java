@@ -83,36 +83,20 @@ public final class WorkshopItemCatalogService {
 		ServerWorld world = player.getServerWorld();
 		WorkshopSearchContainerCollector.Result collected = containerCollector.collect(player, session);
 		if (collected.containers().isEmpty()) {
-			return reject(
-				request,
-				collected.deniedContainerCount() > 0
-					? WorkshopItemCatalogResultCode.DENIED
-					: WorkshopItemCatalogResultCode.NO_ACCESSIBLE_CONTAINERS
-			);
+			return reject(request, WorkshopItemCatalogResultCode.EMPTY);
 		}
 
 		WorkshopItemCatalogBuilder builder = new WorkshopItemCatalogBuilder();
-		boolean[] deniedItem = {false};
 		for (WorkshopAccessibleContainer accessible : collected.containers()) {
-			builder.addContainer(accessible.container().inventory(), item -> {
-				WorkshopContainerAccessService.AccessResult result = accessService.canSearchItem(
+			builder.addContainer(accessible.container().inventory(), item ->
+				accessService.canSearchItem(
 					player, world, accessible.container(), item
-				);
-				if (result != WorkshopContainerAccessService.AccessResult.ALLOW) {
-					deniedItem[0] = true;
-					return false;
-				}
-				return true;
-			});
+				) == WorkshopContainerAccessService.AccessResult.ALLOW
+			);
 		}
 		WorkshopItemCatalog catalog = builder.build(WorkshopItemCatalog.MAX_CATALOG_ENTRIES);
 		if (catalog.entries().isEmpty()) {
-			return reject(
-				request,
-				deniedItem[0] || collected.deniedContainerCount() > 0
-					? WorkshopItemCatalogResultCode.DENIED
-					: WorkshopItemCatalogResultCode.EMPTY
-			);
+			return reject(request, WorkshopItemCatalogResultCode.EMPTY);
 		}
 		WorkshopZone.LOGGER.debug(
 			"Workshop item catalog requestId {} session {} considered {} containers, accepted {}, returned {} of {} item types",

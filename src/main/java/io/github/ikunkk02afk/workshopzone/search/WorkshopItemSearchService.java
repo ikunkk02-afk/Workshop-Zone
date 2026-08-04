@@ -123,6 +123,7 @@ public final class WorkshopItemSearchService {
 			}
 			totalItemCount += count.itemCount();
 			matches.add(new WorkshopItemSearchContainerResult(
+				accessibleContainer.entry().type(), accessibleContainer.entry().blockId(),
 				container.representativePosition(), container.memberPositions(), count.itemCount(), count.matchingSlotCount(),
 				accessibleContainer.distanceSquared(), count.multipleVariants(), accessibleContainer.scanIndex()
 			));

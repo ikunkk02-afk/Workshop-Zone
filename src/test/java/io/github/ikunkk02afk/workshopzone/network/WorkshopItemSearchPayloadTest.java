@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.network;
 
+import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchContainerResult;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchResultCode;
 import io.netty.buffer.Unpooled;
@@ -30,6 +31,7 @@ class WorkshopItemSearchPayloadTest {
 	@Test
 	void resultPayloadRoundTripsWithDoubleChestHighlights() {
 		WorkshopItemSearchContainerResult container = new WorkshopItemSearchContainerResult(
+			WorkshopBlockType.TRAPPED_CHEST, Identifier.ofVanilla("trapped_chest"),
 			new BlockPos(1, 64, 1), List.of(new BlockPos(1, 64, 1), new BlockPos(2, 64, 1)),
 			64L, 2, 9.5, true, 4
 		);
@@ -49,6 +51,8 @@ class WorkshopItemSearchPayloadTest {
 		assertEquals(original.totalItemCount(), decoded.totalItemCount());
 		assertEquals(original.totalMatchingContainers(), decoded.totalMatchingContainers());
 		assertEquals(original.truncated(), decoded.truncated());
+		assertEquals(container.containerType(), decoded.results().getFirst().containerType());
+		assertEquals(container.blockId(), decoded.results().getFirst().blockId());
 		assertEquals(container.representativePosition(), decoded.results().getFirst().representativePosition());
 		assertEquals(container.highlightPositions(), decoded.results().getFirst().highlightPositions());
 		assertEquals(container.containerItemCount(), decoded.results().getFirst().containerItemCount());

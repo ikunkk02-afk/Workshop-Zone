@@ -152,6 +152,37 @@ public final class WorkshopItemSearchGameTests implements FabricGameTest {
 	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void catalogWithOnlyDeniedContentsIsIndistinguishableFromEmpty(TestContext context) {
+		LogicalContainer chest = place(context, BASE, Blocks.CHEST.getDefaultState());
+		chest.inventory().setStack(0, new ItemStack(Items.DIAMOND, 64));
+		SessionFixture fixture = openSession(context, chest);
+		WorkshopContainerAccessService access = new WorkshopContainerAccessService(
+			(player, world, entry, state) -> true,
+			(player, world, container, targetItem) -> false
+		);
+
+		WorkshopItemCatalogPayload result = catalog(
+			fixture, new WorkshopItemCatalogService(fixture.manager(), access), 111
+		);
+
+		context.assertEquals(WorkshopItemCatalogResultCode.EMPTY, result.resultId(),
+			"Denied contents must not be distinguishable from an empty visible catalog");
+		context.assertTrue(result.entries().isEmpty(), "Denied contents must not enter the catalog");
+
+		ChestBlockEntity blockEntity = (ChestBlockEntity)context.getWorld().getBlockEntity(chest.representativePosition());
+		ItemStack lockedChestItem = new ItemStack(Items.CHEST);
+		lockedChestItem.set(DataComponentTypes.LOCK, new ContainerLock("secret"));
+		blockEntity.readComponents(lockedChestItem);
+		WorkshopItemCatalogPayload lockedResult = catalog(
+			fixture, new WorkshopItemCatalogService(fixture.manager()), 112
+		);
+		context.assertEquals(WorkshopItemCatalogResultCode.EMPTY, lockedResult.resultId(),
+			"Locked contents must be indistinguishable from an empty visible catalog");
+		context.assertTrue(lockedResult.entries().isEmpty(), "Locked contents must not enter the catalog");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
 	public void repeatedCatalogRequestsUseIndependentTenTickCooldownPerPlayer(TestContext context) {
 		LogicalContainer chest = place(context, BASE, Blocks.CHEST.getDefaultState());
 		chest.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 1));

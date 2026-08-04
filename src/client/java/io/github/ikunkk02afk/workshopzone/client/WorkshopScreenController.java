@@ -165,7 +165,7 @@ public final class WorkshopScreenController {
 			}
 		}
 		if (ClientWorkshopSearchState.shouldRequestCatalog(snapshot)) {
-			sendCatalogRequest(snapshot, ClientWorkshopSearchState.selectedItem() != null);
+			sendCatalogRequest(snapshot, ClientWorkshopSearchState.selectedItem() != null, true);
 		}
 		ClientWorkshopSearchState.consumeNetwork(snapshot);
 		TextRenderer renderer = MinecraftClient.getInstance().textRenderer;
@@ -455,11 +455,21 @@ public final class WorkshopScreenController {
 	}
 
 	private void sendCatalogRequest(ClientWorkshopSnapshot snapshot, boolean refreshSelected) {
+		sendCatalogRequest(snapshot, refreshSelected, false);
+	}
+
+	private void sendCatalogRequest(
+		ClientWorkshopSnapshot snapshot,
+		boolean refreshSelected,
+		boolean automaticRetry
+	) {
 		if (snapshot == null || screen.getScreenHandler().syncId != snapshot.syncId()
 			|| !ClientPlayNetworking.canSend(RequestWorkshopItemCatalogPayload.ID)) {
 			return;
 		}
-		RequestWorkshopItemCatalogPayload request = ClientWorkshopSearchState.requestCatalog(snapshot, refreshSelected);
+		RequestWorkshopItemCatalogPayload request = automaticRetry
+			? ClientWorkshopSearchState.retryCatalog(snapshot, refreshSelected)
+			: ClientWorkshopSearchState.requestCatalog(snapshot, refreshSelected);
 		if (request != null) {
 			ClientPlayNetworking.send(request);
 		}

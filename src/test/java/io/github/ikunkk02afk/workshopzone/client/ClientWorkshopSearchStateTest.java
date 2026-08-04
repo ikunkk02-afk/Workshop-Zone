@@ -14,6 +14,8 @@ import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class ClientWorkshopSearchStateTest {
@@ -50,25 +52,60 @@ class ClientWorkshopSearchStateTest {
 	}
 
 	@Test
-	void staleCatalogResponseIsIgnoredUntilTheCurrentRequestArrives() {
+	void catalogRequestsAreCoalescedWhileOneIsLoading() {
 		ClientWorkshopSnapshot snapshot = snapshot(12, 3, 9);
 		ClientWorkshopSearchState.enter(snapshot);
 		RequestWorkshopItemCatalogPayload first = ClientWorkshopSearchState.requestCatalog(snapshot, false);
-		RequestWorkshopItemCatalogPayload current = ClientWorkshopSearchState.requestCatalog(snapshot, false);
+
+		assertNotNull(first);
+		assertNull(ClientWorkshopSearchState.requestCatalog(snapshot, false));
 
 		ClientWorkshopSearchState.acceptCatalogNetwork(new WorkshopItemCatalogPayload(
 			first.requestId(), first.sessionId(), first.revision(), first.syncId(),
 			WorkshopItemCatalogResultCode.EMPTY, 0, false, List.of()
 		));
-		assertFalse(ClientWorkshopSearchState.consumeCatalogNetwork(snapshot));
-		assertTrue(ClientWorkshopSearchState.catalogLoading());
-
-		ClientWorkshopSearchState.acceptCatalogNetwork(new WorkshopItemCatalogPayload(
-			current.requestId(), current.sessionId(), current.revision(), current.syncId(),
-			WorkshopItemCatalogResultCode.EMPTY, 0, false, List.of()
-		));
 		assertTrue(ClientWorkshopSearchState.consumeCatalogNetwork(snapshot));
 		assertTrue(ClientWorkshopSearchState.catalogReady());
+	}
+
+	@Test
+	void catalogCooldownRetriesAtMostOnceAutomatically() {
+		ClientWorkshopSnapshot snapshot = snapshot(12, 3, 9);
+		ClientWorkshopSearchState.enter(snapshot);
+		RequestWorkshopItemCatalogPayload first = ClientWorkshopSearchState.requestCatalog(snapshot, false);
+
+		ClientWorkshopSearchState.acceptCatalogNetwork(new WorkshopItemCatalogPayload(
+			first.requestId(), first.sessionId(), first.revision(), first.syncId(),
+			WorkshopItemCatalogResultCode.COOLDOWN, 0, false, List.of()
+		));
+		ClientWorkshopSearchState.consumeCatalogNetwork(snapshot);
+		assertTrue(ClientWorkshopSearchState.shouldRequestCatalog(snapshot, Long.MAX_VALUE));
+
+		RequestWorkshopItemCatalogPayload retry = ClientWorkshopSearchState.retryCatalog(snapshot, false);
+		assertNotNull(retry);
+		ClientWorkshopSearchState.acceptCatalogNetwork(new WorkshopItemCatalogPayload(
+			retry.requestId(), retry.sessionId(), retry.revision(), retry.syncId(),
+			WorkshopItemCatalogResultCode.COOLDOWN, 0, false, List.of()
+		));
+		ClientWorkshopSearchState.consumeCatalogNetwork(snapshot);
+
+		assertFalse(ClientWorkshopSearchState.shouldRequestCatalog(snapshot, Long.MAX_VALUE));
+		assertNull(ClientWorkshopSearchState.retryCatalog(snapshot, false));
+	}
+
+	@Test
+	void closingSearchClearsCatalogAndPendingStateBeforeReopen() {
+		ClientWorkshopSnapshot snapshot = snapshot(12, 3, 9);
+		ClientWorkshopSearchState.enter(snapshot);
+		assertNotNull(ClientWorkshopSearchState.requestCatalog(snapshot, false));
+
+		ClientWorkshopSearchState.closeMode();
+
+		assertFalse(ClientWorkshopSearchState.searchMode());
+		assertFalse(ClientWorkshopSearchState.catalogLoading());
+		assertFalse(ClientWorkshopSearchState.catalogReady());
+		assertFalse(ClientWorkshopSearchState.pending());
+		assertTrue(ClientWorkshopSearchState.candidates().isEmpty());
 	}
 
 	@Test

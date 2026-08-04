@@ -1,12 +1,7 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
-import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchContainerResult;
-import net.minecraft.util.math.BlockPos;
-
-import java.util.List;
-import java.util.Objects;
-import java.util.Set;
+import net.minecraft.util.Identifier;
 
 public final class WorkshopItemSearchResultFilter {
 	private WorkshopItemSearchResultFilter() {
@@ -17,21 +12,14 @@ public final class WorkshopItemSearchResultFilter {
 		long pendingRequestId,
 		long sessionId,
 		long revision,
-		int syncId
+		int syncId,
+		Identifier targetItemId
 	) {
 		return payload != null
 			&& payload.requestId() == pendingRequestId
 			&& payload.sessionId() == sessionId
 			&& payload.revision() == revision
-			&& payload.syncId() == syncId;
-	}
-
-	public static List<WorkshopItemSearchContainerResult> filterExisting(
-		List<WorkshopItemSearchContainerResult> results,
-		Set<BlockPos> snapshotPositions
-	) {
-		Objects.requireNonNull(results, "results");
-		Objects.requireNonNull(snapshotPositions, "snapshotPositions");
-		return results.stream().filter(result -> snapshotPositions.contains(result.representativePosition())).toList();
+			&& payload.syncId() == syncId
+			&& payload.targetItemId().equals(targetItemId);
 	}
 }
