@@ -44,6 +44,18 @@ public final class WorkshopContainerAccessService {
 		LogicalContainer container,
 		Item targetItem
 	) {
+		AccessResult containerAccess = canAccessContainer(player, world, entry, container);
+		return containerAccess == AccessResult.ALLOW
+			? canSearchItem(player, world, container, targetItem)
+			: containerAccess;
+	}
+
+	public AccessResult canAccessContainer(
+		ServerPlayerEntity player,
+		ServerWorld world,
+		WorkshopBlockEntry entry,
+		LogicalContainer container
+	) {
 		for (BlockEntity member : container.members()) {
 			if (member instanceof LootableContainerBlockEntity lootable && lootable.getLootTable() != null) {
 				return AccessResult.UNGENERATED_LOOT;
@@ -68,17 +80,33 @@ public final class WorkshopContainerAccessService {
 			if (!openPermission.canOpen(player, world, entry, state)) {
 				return AccessResult.OPEN_CALLBACK_DENIED;
 			}
-			if (!searchPermission.canSearch(player, world, container, targetItem)) {
-				return AccessResult.SEARCH_CALLBACK_DENIED;
-			}
 		} catch (RuntimeException exception) {
 			WorkshopZone.LOGGER.debug(
-				"Workshop search access callback failed for {}; denying search",
+				"Workshop container access callback failed for {}; denying search",
 				container.representativePosition(), exception
 			);
 			return AccessResult.CALLBACK_ERROR;
 		}
 		return AccessResult.ALLOW;
+	}
+
+	public AccessResult canSearchItem(
+		ServerPlayerEntity player,
+		ServerWorld world,
+		LogicalContainer container,
+		Item targetItem
+	) {
+		Objects.requireNonNull(targetItem, "targetItem");
+		try {
+			return searchPermission.canSearch(player, world, container, targetItem)
+				? AccessResult.ALLOW : AccessResult.SEARCH_CALLBACK_DENIED;
+		} catch (RuntimeException exception) {
+			WorkshopZone.LOGGER.debug(
+				"Workshop item search access callback failed for {}; denying item {}",
+				container.representativePosition(), targetItem, exception
+			);
+			return AccessResult.CALLBACK_ERROR;
+		}
 	}
 
 	public enum AccessResult {

@@ -1,6 +1,7 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
+import io.github.ikunkk02afk.workshopzone.search.WorkshopItemCatalogEntry;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.Items;
@@ -16,30 +17,39 @@ import java.util.Objects;
 
 public final class WorkshopItemCandidateSearch {
 	public static final int MAX_RESULTS = 50;
-	private static List<WorkshopItemCandidate> cachedRegistryCandidates;
+	public static final int MAX_RECOMMENDATIONS = 20;
 
 	private WorkshopItemCandidateSearch() {
 	}
 
-	public static synchronized Result searchRegistry(String rawQuery) {
-		if (cachedRegistryCandidates == null) {
-			cachedRegistryCandidates = buildRegistryCandidates();
+	public static Result searchCatalog(String rawQuery, List<WorkshopItemCatalogEntry> catalog) {
+		Objects.requireNonNull(catalog, "catalog");
+		List<WorkshopItemCandidate> source = new ArrayList<>(catalog.size());
+		for (WorkshopItemCatalogEntry entry : catalog) {
+			Item item = Registries.ITEM.getOrEmpty(entry.itemId()).orElse(null);
+			if (item == null || item == Items.AIR) {
+				WorkshopZone.LOGGER.debug("Skipping unknown workshop catalog item {} on client", entry.itemId());
+				continue;
+			}
+			ItemStack icon = new ItemStack(item);
+			if (WorkshopItemCandidate.isValid(entry.itemId(), icon)) {
+				source.add(new WorkshopItemCandidate(
+					entry.itemId(), icon.getName().getString(), icon, entry.itemId().getNamespace(),
+					entry.totalCount(), entry.matchingContainerCount(), entry.multipleVariants()
+				));
+			}
 		}
-		Result result = search(cachedRegistryCandidates, WorkshopItemSearchQuery.parse(rawQuery));
-		WorkshopZone.LOGGER.debug("Workshop item candidate query produced {} candidates (truncated={})", result.candidates().size(), result.truncated());
+		Result result = search(source, WorkshopItemSearchQuery.parse(rawQuery));
+		WorkshopZone.LOGGER.debug(
+			"Workshop item catalog query produced {} candidates from {} entries (truncated={})",
+			result.candidates().size(), catalog.size(), result.truncated()
+		);
 		return result;
-	}
-
-	public static synchronized void invalidateRegistryCache() {
-		cachedRegistryCandidates = null;
 	}
 
 	static Result search(Collection<WorkshopItemCandidate> source, WorkshopItemSearchQuery query) {
 		Objects.requireNonNull(source, "source");
 		Objects.requireNonNull(query, "query");
-		if (query.empty()) {
-			return new Result(List.of(), false);
-		}
 		List<RankedCandidate> matches = new ArrayList<>();
 		for (WorkshopItemCandidate candidate : source) {
 			Integer rank = rank(candidate.itemId(), candidate.localizedName(), candidate.namespace(), query);
@@ -48,17 +58,19 @@ public final class WorkshopItemCandidateSearch {
 			}
 		}
 		matches.sort(Comparator.comparingInt(RankedCandidate::rank)
+			.thenComparing(Comparator.comparingLong((RankedCandidate value) -> value.candidate().totalCount()).reversed())
 			.thenComparing(RankedCandidate::normalizedName)
 			.thenComparing(value -> value.candidate().itemId().toString()));
-		return new Result(matches.stream().limit(MAX_RESULTS).map(RankedCandidate::candidate).toList(), matches.size() > MAX_RESULTS);
+		int limit = query.empty() ? MAX_RECOMMENDATIONS : MAX_RESULTS;
+		return new Result(
+			matches.stream().limit(limit).map(RankedCandidate::candidate).toList(),
+			!query.empty() && matches.size() > MAX_RESULTS
+		);
 	}
 
 	static MetadataResult searchMetadata(Collection<WorkshopItemCandidateMetadata> source, WorkshopItemSearchQuery query) {
 		Objects.requireNonNull(source, "source");
 		Objects.requireNonNull(query, "query");
-		if (query.empty()) {
-			return new MetadataResult(List.of(), false);
-		}
 		List<RankedMetadata> matches = new ArrayList<>();
 		for (WorkshopItemCandidateMetadata candidate : source) {
 			Integer rank = rank(candidate.itemId(), candidate.localizedName(), candidate.namespace(), query);
@@ -67,9 +79,14 @@ public final class WorkshopItemCandidateSearch {
 			}
 		}
 		matches.sort(Comparator.comparingInt(RankedMetadata::rank)
+			.thenComparing(Comparator.comparingLong((RankedMetadata value) -> value.candidate().totalCount()).reversed())
 			.thenComparing(RankedMetadata::normalizedName)
 			.thenComparing(value -> value.candidate().itemId().toString()));
-		return new MetadataResult(matches.stream().limit(MAX_RESULTS).map(RankedMetadata::candidate).toList(), matches.size() > MAX_RESULTS);
+		int limit = query.empty() ? MAX_RECOMMENDATIONS : MAX_RESULTS;
+		return new MetadataResult(
+			matches.stream().limit(limit).map(RankedMetadata::candidate).toList(),
+			!query.empty() && matches.size() > MAX_RESULTS
+		);
 	}
 
 	private static Integer rank(Identifier itemId, String localizedName, String candidateNamespace, WorkshopItemSearchQuery query) {
@@ -102,20 +119,6 @@ public final class WorkshopItemCandidateSearch {
 		return id.contains(text) || path.contains(text) || namespace.contains(text) ? 5 : null;
 	}
 
-	private static List<WorkshopItemCandidate> buildRegistryCandidates() {
-		List<WorkshopItemCandidate> candidates = new ArrayList<>(Registries.ITEM.size());
-		for (Item item : Registries.ITEM) {
-			Identifier id = Registries.ITEM.getId(item);
-			if (item == Items.AIR || Identifier.ofVanilla("air").equals(id)) {
-				continue;
-			}
-			ItemStack icon = new ItemStack(item);
-			if (WorkshopItemCandidate.isValid(id, icon)) {
-				candidates.add(new WorkshopItemCandidate(id, icon.getName().getString(), icon));
-			}
-		}
-		return List.copyOf(candidates);
-	}
 
 	public record Result(List<WorkshopItemCandidate> candidates, boolean truncated) {
 		public Result {

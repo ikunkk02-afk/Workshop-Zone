@@ -9,10 +9,13 @@ public record WorkshopItemCandidate(
 	Identifier itemId,
 	String localizedName,
 	ItemStack icon,
-	String namespace
+	String namespace,
+	long totalCount,
+	int matchingContainerCount,
+	boolean multipleVariants
 ) {
 	public WorkshopItemCandidate(Identifier itemId, String localizedName, ItemStack icon) {
-		this(itemId, localizedName, icon, itemId == null ? "" : itemId.getNamespace());
+		this(itemId, localizedName, icon, itemId == null ? "" : itemId.getNamespace(), 1, 1, false);
 	}
 
 	public WorkshopItemCandidate {
@@ -20,7 +23,8 @@ public record WorkshopItemCandidate(
 		localizedName = Objects.requireNonNull(localizedName, "localizedName");
 		icon = Objects.requireNonNull(icon, "icon").copy();
 		namespace = Objects.requireNonNull(namespace, "namespace");
-		if (!namespace.equals(itemId.getNamespace()) || !isValid(itemId, icon)) {
+		if (!namespace.equals(itemId.getNamespace()) || !isValid(itemId, icon)
+			|| totalCount <= 0 || matchingContainerCount <= 0) {
 			throw new IllegalArgumentException("Invalid workshop item candidate");
 		}
 	}
@@ -34,6 +38,8 @@ public record WorkshopItemCandidate(
 	}
 
 	public WorkshopItemCandidateMetadata metadata() {
-		return new WorkshopItemCandidateMetadata(itemId, localizedName, namespace);
+		return new WorkshopItemCandidateMetadata(
+			itemId, localizedName, namespace, totalCount, matchingContainerCount, multipleVariants
+		);
 	}
 }

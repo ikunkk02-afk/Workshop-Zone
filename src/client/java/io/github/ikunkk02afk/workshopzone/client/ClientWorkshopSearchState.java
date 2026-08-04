@@ -1,11 +1,18 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
+import io.github.ikunkk02afk.workshopzone.deposit.WorkshopDepositResult;
+import io.github.ikunkk02afk.workshopzone.network.RequestWorkshopItemCatalogPayload;
 import io.github.ikunkk02afk.workshopzone.network.SearchWorkshopItemPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopDepositResultPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopItemCatalogPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
+import io.github.ikunkk02afk.workshopzone.search.WorkshopItemCatalogEntry;
+import io.github.ikunkk02afk.workshopzone.search.WorkshopItemCatalogResultCode;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchContainerResult;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchResultCode;
 import net.minecraft.util.Identifier;
+import net.minecraft.util.Util;
 import net.minecraft.util.math.BlockPos;
 
 import java.util.ArrayList;
@@ -33,11 +40,31 @@ public final class ClientWorkshopSearchState {
 	private static int currentSyncId = -1;
 	private static ClientWorkshopSearchResult result;
 	private static WorkshopItemSearchResultCode error;
+	private static boolean catalogLoading;
+	private static boolean catalogReady;
+	private static boolean catalogRefreshing;
+	private static long catalogRequestId = -1;
+	private static long catalogSessionId = -1;
+	private static long catalogRevision = -1;
+	private static int catalogSyncId = -1;
+	private static List<WorkshopItemCatalogEntry> catalogEntries = List.of();
+	private static boolean catalogTruncated;
+	private static WorkshopItemCatalogResultCode catalogError;
+	private static long catalogSequence;
+	private static long catalogRetryAtMillis;
+	private static Identifier refreshSelectedItemId;
+	private static WorkshopItemCandidate pendingDetailedRefreshCandidate;
+	private static boolean inventoryChangedNotice;
 	private static long resultSequence;
 	private static long nextRequestId = 1;
+	private static long nextCatalogRequestId = 1;
 	private static WorkshopItemSearchResultPayload networkResult;
 	private static long networkSequence;
 	private static long observedNetworkSequence;
+	private static WorkshopItemCatalogPayload networkCatalog;
+	private static long networkCatalogSequence;
+	private static long observedCatalogNetworkSequence;
+	private static long observedDepositSequence;
 
 	private ClientWorkshopSearchState() {
 	}
@@ -46,6 +73,8 @@ public final class ClientWorkshopSearchState {
 		resetUi();
 		currentSyncId = syncId;
 		observedNetworkSequence = networkSequence;
+		observedCatalogNetworkSequence = networkCatalogSequence;
+		observedDepositSequence = ClientDepositState.resultSequence();
 	}
 
 	public static void enter(ClientWorkshopSnapshot snapshot) {
@@ -73,38 +102,26 @@ public final class ClientWorkshopSearchState {
 			currentRevision = snapshot.revision();
 			currentSyncId = snapshot.syncId();
 			observedNetworkSequence = networkSequence;
+			observedCatalogNetworkSequence = networkCatalogSequence;
 			return;
 		}
 		if (currentRevision != snapshot.revision()) {
 			currentRevision = snapshot.revision();
 			selectedItem = null;
 			clearServerResult();
+			invalidateCatalog(false);
 		}
 	}
 
 	public static void setSearchText(String value) {
 		searchText = value == null ? "" : value;
-		WorkshopItemCandidateSearch.Result search = WorkshopItemCandidateSearch.searchRegistry(searchText);
-		candidates = search.candidates();
-		candidatesTruncated = search.truncated();
-		selectedCandidateIndex = candidates.isEmpty() ? -1 : 0;
-		candidateScrollOffset = 0;
+		recomputeCandidates(true);
 		selectedItem = null;
 		clearServerResult();
 	}
 
 	public static void refreshLocalizedCandidates() {
-		if (searchText.isBlank()) {
-			candidates = List.of();
-			candidatesTruncated = false;
-			selectedCandidateIndex = -1;
-			return;
-		}
-		WorkshopItemCandidateSearch.Result search = WorkshopItemCandidateSearch.searchRegistry(searchText);
-		candidates = search.candidates();
-		candidatesTruncated = search.truncated();
-		selectedCandidateIndex = candidates.isEmpty()
-			? -1 : Math.min(Math.max(0, selectedCandidateIndex), candidates.size() - 1);
+		recomputeCandidates(false);
 		if (selectedItem != null) {
 			Identifier selectedId = selectedItem.itemId();
 			selectedItem = candidates.stream()
@@ -114,7 +131,167 @@ public final class ClientWorkshopSearchState {
 		}
 	}
 
+	public static RequestWorkshopItemCatalogPayload requestCatalog(ClientWorkshopSnapshot snapshot, boolean refreshSelected) {
+		if (snapshot == null) {
+			return null;
+		}
+		boolean wasReady = catalogReady;
+		refreshSelectedItemId = refreshSelected && selectedItem != null ? selectedItem.itemId() : null;
+		invalidateCatalog(true);
+		catalogRefreshing = refreshSelected || wasReady;
+		catalogLoading = true;
+		catalogRequestId = nextCatalogRequestId();
+		catalogSessionId = snapshot.sessionId();
+		catalogRevision = snapshot.revision();
+		catalogSyncId = snapshot.syncId();
+		catalogError = null;
+		catalogRetryAtMillis = 0;
+		observedCatalogNetworkSequence = networkCatalogSequence;
+		catalogSequence++;
+		WorkshopZone.LOGGER.debug(
+			"Sending workshop item catalog requestId {} session {} revision {} syncId {}",
+			catalogRequestId, catalogSessionId, catalogRevision, catalogSyncId
+		);
+		return new RequestWorkshopItemCatalogPayload(
+			catalogRequestId, catalogSessionId, catalogRevision, catalogSyncId
+		);
+	}
+
+	public static boolean shouldRequestCatalog(ClientWorkshopSnapshot snapshot) {
+		return searchMode && snapshot != null && !catalogLoading && !catalogReady
+			&& Util.getMeasuringTimeMs() >= catalogRetryAtMillis;
+	}
+
+	public static void acceptCatalogNetwork(WorkshopItemCatalogPayload payload) {
+		networkCatalog = payload;
+		networkCatalogSequence++;
+	}
+
+	public static boolean consumeCatalogNetwork(ClientWorkshopSnapshot snapshot) {
+		if (observedCatalogNetworkSequence == networkCatalogSequence || snapshot == null) {
+			return false;
+		}
+		observedCatalogNetworkSequence = networkCatalogSequence;
+		WorkshopItemCatalogPayload payload = networkCatalog;
+		if (!WorkshopItemCatalogResultFilter.matches(
+			payload, catalogRequestId, snapshot.sessionId(), snapshot.revision(), snapshot.syncId()
+		)) {
+			WorkshopZone.LOGGER.debug(
+				"Rejected stale workshop item catalog result requestId {} for pending requestId {}",
+				payload == null ? -1 : payload.requestId(), catalogRequestId
+			);
+			return false;
+		}
+		catalogLoading = false;
+		catalogRefreshing = false;
+		catalogError = payload.resultId() == WorkshopItemCatalogResultCode.SUCCESS
+			|| payload.resultId() == WorkshopItemCatalogResultCode.EMPTY ? null : payload.resultId();
+		if (payload.resultId() == WorkshopItemCatalogResultCode.SUCCESS
+			|| payload.resultId() == WorkshopItemCatalogResultCode.EMPTY) {
+			catalogReady = true;
+			catalogEntries = List.copyOf(payload.entries());
+			catalogTruncated = payload.truncated();
+			catalogRetryAtMillis = Long.MAX_VALUE;
+			recomputeCandidates(true);
+			if (refreshSelectedItemId != null) {
+				pendingDetailedRefreshCandidate = candidates.stream()
+					.filter(candidate -> candidate.itemId().equals(refreshSelectedItemId))
+					.findFirst().orElse(null);
+				if (pendingDetailedRefreshCandidate == null) {
+					selectedItem = null;
+					clearServerResult();
+					inventoryChangedNotice = true;
+				}
+			}
+			refreshSelectedItemId = null;
+		} else {
+			catalogReady = false;
+			catalogEntries = List.of();
+			catalogTruncated = false;
+			candidates = List.of();
+			selectedCandidateIndex = -1;
+			catalogRetryAtMillis = payload.resultId() == WorkshopItemCatalogResultCode.COOLDOWN
+				? Util.getMeasuringTimeMs() + 600L : Long.MAX_VALUE;
+		}
+		catalogSequence++;
+		return true;
+	}
+
+	public static WorkshopItemCandidate takePendingDetailedRefreshCandidate() {
+		WorkshopItemCandidate candidate = pendingDetailedRefreshCandidate;
+		pendingDetailedRefreshCandidate = null;
+		return candidate;
+	}
+
+	public static boolean consumeInventoryChangedNotice() {
+		boolean value = inventoryChangedNotice;
+		inventoryChangedNotice = false;
+		return value;
+	}
+
+	public static void observeDepositResult(ClientWorkshopSnapshot snapshot) {
+		long sequence = ClientDepositState.resultSequence();
+		if (sequence == observedDepositSequence) {
+			return;
+		}
+		observedDepositSequence = sequence;
+		WorkshopDepositResultPayload payload = ClientDepositState.lastResult();
+		if (!searchMode || snapshot == null || payload == null || payload.sessionId() != snapshot.sessionId()
+			|| payload.syncId() != snapshot.syncId()
+			|| (payload.result() != WorkshopDepositResult.SUCCESS && payload.result() != WorkshopDepositResult.PARTIAL)
+			|| payload.movedItemCount() <= 0) {
+			return;
+		}
+		refreshSelectedItemId = selectedItem == null ? null : selectedItem.itemId();
+		invalidateCatalog(true);
+	}
+
+	private static void recomputeCandidates(boolean resetSelection) {
+		if (!catalogReady || catalogLoading) {
+			candidates = List.of();
+			candidatesTruncated = false;
+			selectedCandidateIndex = -1;
+			candidateScrollOffset = 0;
+			return;
+		}
+		WorkshopItemCandidateSearch.Result search = WorkshopItemCandidateSearch.searchCatalog(searchText, catalogEntries);
+		candidates = search.candidates();
+		candidatesTruncated = search.truncated();
+		if (resetSelection) {
+			selectedCandidateIndex = candidates.isEmpty() ? -1 : 0;
+			candidateScrollOffset = 0;
+		} else {
+			selectedCandidateIndex = candidates.isEmpty()
+				? -1 : Math.min(Math.max(0, selectedCandidateIndex), candidates.size() - 1);
+		}
+	}
+
+	private static void invalidateCatalog(boolean preserveSelectedItem) {
+		catalogLoading = false;
+		catalogReady = false;
+		catalogRefreshing = false;
+		catalogRequestId = -1;
+		catalogSessionId = -1;
+		catalogRevision = -1;
+		catalogSyncId = -1;
+		catalogEntries = List.of();
+		catalogTruncated = false;
+		catalogError = null;
+		catalogRetryAtMillis = 0;
+		candidates = List.of();
+		candidatesTruncated = false;
+		selectedCandidateIndex = -1;
+		candidateScrollOffset = 0;
+		if (!preserveSelectedItem) {
+			refreshSelectedItemId = null;
+		}
+	}
+
 	public static SearchWorkshopItemPayload selectCandidate(WorkshopItemCandidate candidate, ClientWorkshopSnapshot snapshot) {
+		if (candidate == null || snapshot == null || !catalogReady
+			|| catalogEntries.stream().noneMatch(entry -> entry.itemId().equals(candidate.itemId()))) {
+			return null;
+		}
 		selectedItem = candidate;
 		pending = true;
 		pendingRequestId = nextRequestId();
@@ -154,6 +331,14 @@ public final class ClientWorkshopSearchState {
 			return false;
 		}
 		pending = false;
+		if (payload.resultId() == WorkshopItemSearchResultCode.NOT_FOUND) {
+			selectedItem = null;
+			clearServerResult();
+			invalidateCatalog(false);
+			catalogRetryAtMillis = 0;
+			inventoryChangedNotice = true;
+			return true;
+		}
 		Map<BlockPos, ClientWorkshopEntry> entries = new HashMap<>();
 		for (ClientWorkshopEntry entry : snapshot.entries()) {
 			entries.put(entry.position(), entry);
@@ -226,13 +411,23 @@ public final class ClientWorkshopSearchState {
 	public static long pendingSessionId() { return pendingSessionId; }
 	public static long pendingRevision() { return pendingRevision; }
 	public static int pendingSyncId() { return pendingSyncId; }
+	public static boolean catalogLoading() { return catalogLoading; }
+	public static boolean catalogReady() { return catalogReady; }
+	public static boolean catalogRefreshing() { return catalogRefreshing; }
+	public static List<WorkshopItemCatalogEntry> catalogEntries() { return catalogEntries; }
+	public static boolean catalogTruncated() { return catalogTruncated; }
+	public static WorkshopItemCatalogResultCode catalogError() { return catalogError; }
+	public static long catalogSequence() { return catalogSequence; }
 
 	public static void resetConnection() {
 		resetUi();
 		networkResult = null;
 		networkSequence++;
 		observedNetworkSequence = networkSequence;
-		WorkshopItemCandidateSearch.invalidateRegistryCache();
+		networkCatalog = null;
+		networkCatalogSequence++;
+		observedCatalogNetworkSequence = networkCatalogSequence;
+		observedDepositSequence = ClientDepositState.resultSequence();
 	}
 
 	private static void clearServerResult() {
@@ -255,6 +450,20 @@ public final class ClientWorkshopSearchState {
 		candidateScrollOffset = 0;
 		selectedItem = null;
 		clearServerResult();
+		catalogLoading = false;
+		catalogReady = false;
+		catalogRefreshing = false;
+		catalogRequestId = -1;
+		catalogSessionId = -1;
+		catalogRevision = -1;
+		catalogSyncId = -1;
+		catalogEntries = List.of();
+		catalogTruncated = false;
+		catalogError = null;
+		catalogRetryAtMillis = 0;
+		refreshSelectedItemId = null;
+		pendingDetailedRefreshCandidate = null;
+		inventoryChangedNotice = false;
 		currentSessionId = -1;
 		currentRevision = -1;
 		currentSyncId = -1;
@@ -265,6 +474,14 @@ public final class ClientWorkshopSearchState {
 		long value = nextRequestId++;
 		if (nextRequestId < 0) {
 			nextRequestId = 1;
+		}
+		return value;
+	}
+
+	private static long nextCatalogRequestId() {
+		long value = nextCatalogRequestId++;
+		if (nextCatalogRequestId < 0) {
+			nextCatalogRequestId = 1;
 		}
 		return value;
 	}

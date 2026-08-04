@@ -29,6 +29,7 @@ import java.util.UUID;
 public final class WorkshopItemSearchService {
 	private final WorkshopSessionManager sessions;
 	private final WorkshopContainerAccessService accessService;
+	private final WorkshopSearchContainerCollector containerCollector;
 	private final Map<UUID, Long> lastSearchTicks = new HashMap<>();
 
 	public WorkshopItemSearchService(WorkshopSessionManager sessions) {
@@ -38,6 +39,7 @@ public final class WorkshopItemSearchService {
 	public WorkshopItemSearchService(WorkshopSessionManager sessions, WorkshopContainerAccessService accessService) {
 		this.sessions = sessions;
 		this.accessService = accessService;
+		this.containerCollector = new WorkshopSearchContainerCollector(accessService);
 	}
 
 	public WorkshopItemSearchResultPayload search(ServerPlayerEntity player, SearchWorkshopItemPayload request) {
@@ -98,40 +100,20 @@ public final class WorkshopItemSearchService {
 	) {
 		ServerWorld world = player.getServerWorld();
 		List<WorkshopItemSearchContainerResult> matches = new ArrayList<>();
-		Set<BlockPos> seen = new HashSet<>();
-		int candidates = 0;
+		WorkshopSearchContainerCollector.Result collected = containerCollector.collect(player, session);
+		int candidates = collected.candidateContainerCount();
 		int accessible = 0;
-		int scanIndex = 0;
 		long totalItemCount = 0L;
-		for (WorkshopBlockEntry entry : session.scanResult().entries()) {
-			int currentScanIndex = scanIndex++;
-			if (!WorkshopItemSearchChecks.isSearchableContainer(entry.type()) || !seen.add(entry.position())) {
-				continue;
-			}
-			candidates++;
-			BlockPos position = entry.position();
-			if (!isLoaded(world, position)) {
-				debugSkip(position, "chunk_unloaded");
-				continue;
-			}
-			double distanceSquared = player.squaredDistanceTo(Vec3d.ofCenter(position));
-			if (!WorkshopItemSearchChecks.isWithinDistance(distanceSquared)) {
-				debugSkip(position, "out_of_range");
-				continue;
-			}
-			WorkshopContainerResolver.Result resolved = WorkshopContainerResolver.resolve(world, position);
-			if (!resolved.successful()) {
-				debugSkip(position, resolved.status().name().toLowerCase(java.util.Locale.ROOT));
-				continue;
-			}
-			LogicalContainer container = resolved.container();
-			if (!container.representativePosition().equals(position) || container.type() != entry.type()) {
-				debugSkip(position, "representative_or_type_changed");
-				continue;
-			}
-			WorkshopContainerAccessService.AccessResult access = accessService.canSearch(player, world, entry, container, targetItem);
+		for (WorkshopAccessibleContainer accessibleContainer : collected.containers()) {
+			LogicalContainer container = accessibleContainer.container();
+			WorkshopContainerAccessService.AccessResult access = accessService.canSearchItem(
+				player, world, container, targetItem
+			);
 			if (access != WorkshopContainerAccessService.AccessResult.ALLOW) {
-				debugSkip(position, access.name().toLowerCase(java.util.Locale.ROOT));
+				WorkshopZone.LOGGER.debug(
+					"Skipping workshop item search container {}: {}",
+					container.representativePosition(), access.name().toLowerCase(java.util.Locale.ROOT)
+				);
 				continue;
 			}
 			accessible++;
@@ -141,8 +123,8 @@ public final class WorkshopItemSearchService {
 			}
 			totalItemCount += count.itemCount();
 			matches.add(new WorkshopItemSearchContainerResult(
-				position, container.memberPositions(), count.itemCount(), count.matchingSlotCount(),
-				distanceSquared, count.multipleVariants(), currentScanIndex
+				container.representativePosition(), container.memberPositions(), count.itemCount(), count.matchingSlotCount(),
+				accessibleContainer.distanceSquared(), count.multipleVariants(), accessibleContainer.scanIndex()
 			));
 		}
 		if (accessible == 0) {
@@ -177,13 +159,4 @@ public final class WorkshopItemSearchService {
 		return WorkshopItemSearchResult.empty(result, request.targetItemId(), candidates, accessible).toPayload(request);
 	}
 
-	private static boolean isLoaded(ServerWorld world, BlockPos position) {
-		return world.getChunkManager().isChunkLoaded(
-			ChunkSectionPos.getSectionCoord(position.getX()), ChunkSectionPos.getSectionCoord(position.getZ())
-		);
-	}
-
-	private static void debugSkip(BlockPos position, String reason) {
-		WorkshopZone.LOGGER.debug("Skipping workshop item search container {}: {}", position, reason);
-	}
 }

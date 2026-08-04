@@ -13,6 +13,7 @@ import io.github.ikunkk02afk.workshopzone.network.ClearWorkshopSessionPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelDetailsPayload;
 import io.github.ikunkk02afk.workshopzone.network.ContainerLabelEditResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.ItemTagCandidatesPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopItemCatalogPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopSnapshotPayload;
 
@@ -29,7 +30,6 @@ public class WorkshopZoneClient implements ClientModInitializer {
 
 			@Override
 			public void reload(ResourceManager manager) {
-				WorkshopItemCandidateSearch.invalidateRegistryCache();
 				net.minecraft.client.MinecraftClient.getInstance().execute(
 					ClientWorkshopSearchState::refreshLocalizedCandidates
 				);
@@ -62,6 +62,10 @@ public class WorkshopZoneClient implements ClientModInitializer {
 		ClientPlayNetworking.registerGlobalReceiver(
 			WorkshopItemSearchResultPayload.ID,
 			(payload, context) -> context.client().execute(() -> ClientWorkshopSearchState.acceptNetwork(payload))
+		);
+		ClientPlayNetworking.registerGlobalReceiver(
+			WorkshopItemCatalogPayload.ID,
+			(payload, context) -> context.client().execute(() -> ClientWorkshopSearchState.acceptCatalogNetwork(payload))
 		);
 		ClientPlayConnectionEvents.JOIN.register((handler, sender, client) -> ClientWorkshopState.resetConnection());
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> ClientWorkshopState.resetConnection());

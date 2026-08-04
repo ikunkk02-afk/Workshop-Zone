@@ -6,7 +6,9 @@ import io.github.ikunkk02afk.workshopzone.label.ContainerLabelService;
 import io.github.ikunkk02afk.workshopzone.label.LogicalContainer;
 import io.github.ikunkk02afk.workshopzone.label.SilentContainerAccess;
 import io.github.ikunkk02afk.workshopzone.label.WorkshopContainerResolver;
+import io.github.ikunkk02afk.workshopzone.network.RequestWorkshopItemCatalogPayload;
 import io.github.ikunkk02afk.workshopzone.network.SearchWorkshopItemPayload;
+import io.github.ikunkk02afk.workshopzone.network.WorkshopItemCatalogPayload;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopItemSearchResultPayload;
 import io.github.ikunkk02afk.workshopzone.scan.WorkshopBlockType;
 import io.github.ikunkk02afk.workshopzone.session.WorkshopOpenResult;
@@ -43,6 +45,130 @@ import java.util.List;
 
 public final class WorkshopItemSearchGameTests implements FabricGameTest {
 	private static final BlockPos BASE = new BlockPos(1, 1, 1);
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void catalogOnlyContainsActualItemsAndDoesNotMutateInventories(TestContext context) {
+		LogicalContainer chest = place(context, BASE, Blocks.CHEST.getDefaultState());
+		chest.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 64));
+		chest.inventory().setStack(1, new ItemStack(Items.GOLD_INGOT, 32));
+		SessionFixture fixture = openSession(context, chest);
+		int before = chest.inventory().count(Items.IRON_INGOT) + chest.inventory().count(Items.GOLD_INGOT);
+
+		WorkshopItemCatalogPayload result = catalog(fixture, new WorkshopItemCatalogService(fixture.manager()), 101);
+
+		context.assertEquals(WorkshopItemCatalogResultCode.SUCCESS, result.resultId(), "Catalog should load successfully");
+		context.assertEquals(List.of(Identifier.ofVanilla("iron_ingot"), Identifier.ofVanilla("gold_ingot")),
+			result.entries().stream().map(WorkshopItemCatalogEntry::itemId).toList(), "Catalog should contain only stored item types");
+		context.assertTrue(result.entries().stream().noneMatch(entry -> entry.itemId().equals(Identifier.ofVanilla("iron_chestplate"))),
+			"An absent iron chestplate must not appear in the catalog");
+		context.assertEquals(before, chest.inventory().count(Items.IRON_INGOT) + chest.inventory().count(Items.GOLD_INGOT),
+			"Catalog generation must not mutate inventory contents");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void catalogRefreshReflectsAddedAndRemovedItemTypes(TestContext context) {
+		LogicalContainer chest = place(context, BASE, Blocks.CHEST.getDefaultState());
+		chest.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 64));
+		SessionFixture fixture = openSession(context, chest);
+		WorkshopItemCatalogPayload initial = catalog(fixture, new WorkshopItemCatalogService(fixture.manager()), 102);
+		context.assertTrue(initial.entries().stream().noneMatch(entry -> entry.itemId().equals(Identifier.ofVanilla("iron_chestplate"))),
+			"Absent chestplate should not be present initially");
+
+		chest.inventory().setStack(1, new ItemStack(Items.IRON_CHESTPLATE));
+		WorkshopItemCatalogPayload added = catalog(fixture, new WorkshopItemCatalogService(fixture.manager()), 103);
+		context.assertTrue(added.entries().stream().anyMatch(entry -> entry.itemId().equals(Identifier.ofVanilla("iron_chestplate"))),
+			"Added chestplate should appear after a fresh catalog request");
+
+		chest.inventory().setStack(1, ItemStack.EMPTY);
+		WorkshopItemCatalogPayload removed = catalog(fixture, new WorkshopItemCatalogService(fixture.manager()), 104);
+		context.assertTrue(removed.entries().stream().noneMatch(entry -> entry.itemId().equals(Identifier.ofVanilla("iron_chestplate"))),
+			"Removed chestplate should disappear after a fresh catalog request");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void catalogAggregatesTwoLogicalContainersAndDeduplicatesDoubleChest(TestContext context) {
+		LogicalContainer doubleChest = doubleChest(context, BASE);
+		LogicalContainer single = place(context, BASE.add(4, 0, 0), Blocks.CHEST.getDefaultState());
+		doubleChest.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 32));
+		doubleChest.inventory().setStack(53, new ItemStack(Items.IRON_INGOT, 16));
+		single.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 64));
+		SessionFixture fixture = openSession(context, doubleChest);
+
+		WorkshopItemCatalogEntry iron = catalog(fixture, new WorkshopItemCatalogService(fixture.manager()), 105)
+			.entries().stream().filter(entry -> entry.itemId().equals(Identifier.ofVanilla("iron_ingot"))).findFirst().orElseThrow();
+
+		context.assertEquals(112L, iron.totalCount(), "All iron stacks should be summed with long arithmetic");
+		context.assertEquals(2, iron.matchingContainerCount(), "A double chest must count as one logical container");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void catalogIncludesBarrelTrappedChestAndLabeledContainers(TestContext context) {
+		LogicalContainer barrel = place(context, BASE, Blocks.BARREL.getDefaultState());
+		LogicalContainer trapped = place(context, BASE.add(3, 0, 0), Blocks.TRAPPED_CHEST.getDefaultState());
+		LogicalContainer labeled = place(context, BASE.add(6, 0, 0), Blocks.CHEST.getDefaultState());
+		ContainerLabelService.applyAtomically(labeled, ContainerLabelRule.exact(Items.IRON_INGOT));
+		barrel.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 1));
+		trapped.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 2));
+		labeled.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 3));
+		SessionFixture fixture = openSession(context, barrel);
+
+		WorkshopItemCatalogEntry iron = catalog(fixture, new WorkshopItemCatalogService(fixture.manager()), 106)
+			.entries().stream().filter(entry -> entry.itemId().equals(Identifier.ofVanilla("iron_ingot"))).findFirst().orElseThrow();
+
+		context.assertEquals(6L, iron.totalCount(), "Supported container kinds and labels should preserve counts");
+		context.assertEquals(3, iron.matchingContainerCount(), "Barrel, trapped chest, and labeled chest should all be counted");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void catalogDoesNotLeakLockedOrCallbackDeniedItems(TestContext context) {
+		LogicalContainer opened = place(context, BASE, Blocks.CHEST.getDefaultState());
+		LogicalContainer locked = place(context, BASE.add(3, 0, 0), Blocks.CHEST.getDefaultState());
+		LogicalContainer denied = place(context, BASE.add(6, 0, 0), Blocks.CHEST.getDefaultState());
+		opened.inventory().setStack(0, new ItemStack(Items.GOLD_INGOT, 1));
+		locked.inventory().setStack(0, new ItemStack(Items.DIAMOND, 64));
+		denied.inventory().setStack(0, new ItemStack(Items.NETHERITE_SCRAP, 32));
+		ChestBlockEntity blockEntity = (ChestBlockEntity)context.getWorld().getBlockEntity(locked.representativePosition());
+		ItemStack lockedChestItem = new ItemStack(Items.CHEST);
+		lockedChestItem.set(DataComponentTypes.LOCK, new ContainerLock("secret"));
+		blockEntity.readComponents(lockedChestItem);
+		SessionFixture fixture = openSession(context, opened);
+		WorkshopContainerAccessService access = new WorkshopContainerAccessService(
+			(player, world, entry, state) -> true,
+			(player, world, container, targetItem) -> targetItem != Items.NETHERITE_SCRAP
+		);
+
+		WorkshopItemCatalogPayload result = catalog(
+			fixture, new WorkshopItemCatalogService(fixture.manager(), access), 107
+		);
+
+		context.assertEquals(List.of(Identifier.ofVanilla("gold_ingot")),
+			result.entries().stream().map(WorkshopItemCatalogEntry::itemId).toList(),
+			"Locked and callback-denied contents must not be disclosed");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void repeatedCatalogRequestsUseIndependentTenTickCooldownPerPlayer(TestContext context) {
+		LogicalContainer chest = place(context, BASE, Blocks.CHEST.getDefaultState());
+		chest.inventory().setStack(0, new ItemStack(Items.IRON_INGOT, 1));
+		SessionFixture first = openSession(context, chest);
+		SessionFixture second = openSession(context, chest);
+		WorkshopItemCatalogService service = new WorkshopItemCatalogService(first.manager());
+
+		WorkshopItemCatalogPayload firstResult = catalog(first, service, 108);
+		WorkshopItemCatalogPayload repeated = catalog(first, service, 109);
+		WorkshopItemCatalogPayload secondPlayer = catalog(second, service, 110);
+
+		context.assertEquals(WorkshopItemCatalogResultCode.SUCCESS, firstResult.resultId(), "First catalog request should run");
+		context.assertEquals(WorkshopItemCatalogResultCode.COOLDOWN, repeated.resultId(), "Immediate repeat should be throttled");
+		context.assertEquals(WorkshopItemCatalogResultCode.SUCCESS, secondPlayer.resultId(), "Another player should have an independent cooldown");
+		finish(first, context);
+		finish(second, context);
+	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
 	public void singleChestSearchCountsSixtyFourWithoutMutation(TestContext context) {
@@ -276,6 +402,19 @@ public final class WorkshopItemSearchGameTests implements FabricGameTest {
 			fixture.session().revision(),
 			fixture.session().syncId(),
 			Registries.ITEM.getId(item)
+		));
+	}
+
+	private static WorkshopItemCatalogPayload catalog(
+		SessionFixture fixture,
+		WorkshopItemCatalogService service,
+		long requestId
+	) {
+		return service.catalog(fixture.player(), new RequestWorkshopItemCatalogPayload(
+			requestId,
+			fixture.session().sessionId(),
+			fixture.session().revision(),
+			fixture.session().syncId()
 		));
 	}
 

@@ -1,6 +1,7 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
+import io.github.ikunkk02afk.workshopzone.network.RequestWorkshopItemCatalogPayload;
 import io.github.ikunkk02afk.workshopzone.network.SearchWorkshopItemPayload;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchContainerResult;
 import io.github.ikunkk02afk.workshopzone.search.WorkshopItemSearchResultCode;
@@ -10,6 +11,7 @@ import net.minecraft.client.font.TextRenderer;
 import net.minecraft.client.gui.DrawContext;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.gui.widget.TextFieldWidget;
+import net.minecraft.text.MutableText;
 import net.minecraft.text.Text;
 import net.minecraft.util.Formatting;
 import net.minecraft.util.Identifier;
@@ -22,7 +24,7 @@ import java.util.List;
 import java.util.Locale;
 
 public final class WorkshopScreenController {
-	private static final int CANDIDATE_ROW_HEIGHT = 30;
+	private static final int CANDIDATE_ROW_HEIGHT = 42;
 	private static final int RESULT_ROW_HEIGHT = 36;
 	private static final WorkshopContainerHighlightManager HIGHLIGHTS = new WorkshopContainerHighlightManager();
 
@@ -68,6 +70,7 @@ public final class WorkshopScreenController {
 		if (!searchField.getText().equals(ClientWorkshopSearchState.searchText())) {
 			searchField.setText(ClientWorkshopSearchState.searchText());
 		}
+		sendCatalogRequest(snapshot, false);
 		screen.setFocused(searchField);
 		searchField.setFocused(true);
 	}
@@ -149,9 +152,39 @@ public final class WorkshopScreenController {
 			return;
 		}
 		ClientWorkshopSearchState.synchronizeSnapshot(snapshot);
+		ClientWorkshopSearchState.observeDepositResult(snapshot);
+		ClientWorkshopSearchState.consumeCatalogNetwork(snapshot);
+		WorkshopItemCandidate refreshCandidate = ClientWorkshopSearchState.takePendingDetailedRefreshCandidate();
+		if (refreshCandidate != null) {
+			sendCandidateSearch(refreshCandidate);
+		}
+		if (ClientWorkshopSearchState.consumeInventoryChangedNotice()) {
+			MinecraftClient client = MinecraftClient.getInstance();
+			if (client.player != null) {
+				client.player.sendMessage(Text.translatable("gui.workshop_zone.search.inventory_changed"), true);
+			}
+		}
+		if (ClientWorkshopSearchState.shouldRequestCatalog(snapshot)) {
+			sendCatalogRequest(snapshot, ClientWorkshopSearchState.selectedItem() != null);
+		}
 		ClientWorkshopSearchState.consumeNetwork(snapshot);
 		TextRenderer renderer = MinecraftClient.getInstance().textRenderer;
 		renderToolbar(context, renderer, mouseX, mouseY);
+		if (ClientWorkshopSearchState.catalogLoading()) {
+			String key = ClientWorkshopSearchState.catalogRefreshing()
+				? "gui.workshop_zone.search.refreshing_catalog"
+				: "gui.workshop_zone.search.catalog_loading";
+			context.drawTextWithShadow(renderer, Text.translatable(key), layout.summaryArea().left(), layout.summaryArea().top() + 5, 0xFFE0C060);
+			return;
+		}
+		if (ClientWorkshopSearchState.catalogError() != null) {
+			context.drawTextWithShadow(
+				renderer,
+				WorkshopTextLayout.ellipsize(renderer, Text.translatable(ClientWorkshopSearchState.catalogError().translationKey()), layout.summaryArea().width()),
+				layout.summaryArea().left(), layout.summaryArea().top() + 5, 0xFFFF7777
+			);
+			return;
+		}
 		if (ClientWorkshopSearchState.pending()) {
 			context.drawTextWithShadow(renderer, Text.translatable("gui.workshop_zone.search.searching"), layout.summaryArea().left(), layout.summaryArea().top() + 5, 0xFFE0C060);
 			return;
@@ -240,7 +273,10 @@ public final class WorkshopScreenController {
 
 	private void renderToolbar(DrawContext context, TextRenderer renderer, int mouseX, int mouseY) {
 		List<Text> labels = ClientWorkshopSearchState.selectedItem() == null
-			? List.of(Text.translatable("gui.workshop_zone.search.clear"), Text.translatable("gui.workshop_zone.search.close"))
+			? List.of(
+				Text.translatable("gui.workshop_zone.search.clear"), Text.translatable("gui.workshop_zone.search.refresh"),
+				Text.translatable("gui.workshop_zone.search.close")
+			)
 			: List.of(
 				Text.translatable("gui.workshop_zone.search.back"), Text.translatable("gui.workshop_zone.search.refresh"),
 				Text.translatable("gui.workshop_zone.search.highlight_all"), Text.translatable("gui.workshop_zone.search.clear"),
@@ -256,11 +292,13 @@ public final class WorkshopScreenController {
 
 	private void renderCandidateSummary(DrawContext context, TextRenderer renderer) {
 		Text summary;
-		if (ClientWorkshopSearchState.candidatesTruncated()) {
+		if (ClientWorkshopSearchState.catalogTruncated()) {
+			summary = Text.translatable("gui.workshop_zone.search.catalog_truncated").formatted(Formatting.YELLOW);
+		} else if (ClientWorkshopSearchState.candidatesTruncated()) {
 			summary = Text.translatable("gui.workshop_zone.search.too_many_candidates").formatted(Formatting.YELLOW);
 		} else if (ClientWorkshopSearchState.candidates().isEmpty()) {
 			summary = Text.translatable(ClientWorkshopSearchState.searchText().isBlank()
-				? "gui.workshop_zone.search.candidates" : "gui.workshop_zone.search.no_candidates");
+				? "gui.workshop_zone.search.catalog_empty" : "gui.workshop_zone.search.inventory_no_match", ClientWorkshopSearchState.searchText());
 		} else {
 			summary = Text.translatable("gui.workshop_zone.search.candidates").append(": " + ClientWorkshopSearchState.candidates().size());
 		}
@@ -270,6 +308,7 @@ public final class WorkshopScreenController {
 	private void renderCandidates(DrawContext context, TextRenderer renderer, int mouseX, int mouseY) {
 		List<WorkshopItemCandidate> candidates = ClientWorkshopSearchState.candidates();
 		int scroll = ClientWorkshopSearchState.candidateScrollOffset();
+		WorkshopItemCandidate hoveredCandidate = null;
 		context.enableScissor(layout.listArea().left(), layout.listArea().top(), layout.listArea().right(), layout.listArea().bottom());
 		for (int index = 0; index < candidates.size(); index++) {
 			int y = layout.listArea().top() + index * CANDIDATE_ROW_HEIGHT - scroll;
@@ -284,9 +323,29 @@ public final class WorkshopScreenController {
 			int textX = layout.listArea().left() + 24;
 			context.drawTextWithShadow(renderer, WorkshopTextLayout.ellipsize(renderer, Text.literal(candidate.localizedName()), Math.max(0, layout.listArea().right() - textX - 4)), textX, y + 4, 0xFFFFFFFF);
 			context.drawTextWithShadow(renderer, WorkshopTextLayout.ellipsize(renderer, Text.literal(candidate.itemId().toString()), Math.max(0, layout.listArea().right() - textX - 4)), textX, y + 17, 0xFF909090);
+			MutableText inventory = Text.translatable("gui.workshop_zone.search.available_count", candidate.totalCount())
+				.append(" · ").append(Text.translatable("gui.workshop_zone.search.available_containers", candidate.matchingContainerCount()));
+			if (candidate.multipleVariants()) {
+				inventory = inventory.append(Text.literal(" · ")).append(Text.translatable("gui.workshop_zone.search.multiple_variants"));
+			}
+			context.drawTextWithShadow(renderer, WorkshopTextLayout.ellipsize(renderer, inventory, Math.max(0, layout.listArea().right() - textX - 4)), textX, y + 30, candidate.multipleVariants() ? 0xFFFFAA55 : 0xFFD0D0D0);
+			if (hovered) {
+				hoveredCandidate = candidate;
+			}
 		}
 		context.disableScissor();
 		renderScrollBar(context, candidates.size(), CANDIDATE_ROW_HEIGHT, scroll);
+		if (hoveredCandidate != null) {
+			List<Text> tooltip = new ArrayList<>();
+			tooltip.add(Text.literal(hoveredCandidate.localizedName()));
+			tooltip.add(Text.translatable("gui.workshop_zone.search.item_id", hoveredCandidate.itemId().toString()));
+			tooltip.add(Text.translatable("gui.workshop_zone.search.available_count", hoveredCandidate.totalCount()));
+			tooltip.add(Text.translatable("gui.workshop_zone.search.available_containers", hoveredCandidate.matchingContainerCount()));
+			if (hoveredCandidate.multipleVariants()) {
+				tooltip.add(Text.translatable("gui.workshop_zone.search.multiple_variants").formatted(Formatting.GOLD));
+			}
+			context.drawTooltip(renderer, tooltip, mouseX, mouseY);
+		}
 	}
 
 	private void renderResultSummary(DrawContext context, TextRenderer renderer, ClientWorkshopSearchResult result) {
@@ -355,6 +414,8 @@ public final class WorkshopScreenController {
 				screen.setFocused(searchField);
 				searchField.setFocused(true);
 			} else if (index == 1) {
+				sendCatalogRequest(snapshot, false);
+			} else if (index == 2) {
 				closeSearch();
 			}
 			return;
@@ -365,7 +426,7 @@ public final class WorkshopScreenController {
 				screen.setFocused(searchField);
 				searchField.setFocused(true);
 			}
-			case 1 -> selectCandidate(ClientWorkshopSearchState.selectedItem());
+			case 1 -> sendCatalogRequest(snapshot, true);
 			case 2 -> highlightAll();
 			case 3 -> {
 				searchField.setText("");
@@ -378,13 +439,30 @@ public final class WorkshopScreenController {
 	}
 
 	private void selectCandidate(WorkshopItemCandidate candidate) {
+		sendCandidateSearch(candidate);
+	}
+
+	private void sendCandidateSearch(WorkshopItemCandidate candidate) {
 		ClientWorkshopSnapshot snapshot = ClientWorkshopState.current();
 		if (candidate == null || snapshot == null || snapshot.syncId() != screen.getScreenHandler().syncId
 			|| !ClientPlayNetworking.canSend(SearchWorkshopItemPayload.ID)) {
 			return;
 		}
 		SearchWorkshopItemPayload request = ClientWorkshopSearchState.selectCandidate(candidate, snapshot);
-		ClientPlayNetworking.send(request);
+		if (request != null) {
+			ClientPlayNetworking.send(request);
+		}
+	}
+
+	private void sendCatalogRequest(ClientWorkshopSnapshot snapshot, boolean refreshSelected) {
+		if (snapshot == null || screen.getScreenHandler().syncId != snapshot.syncId()
+			|| !ClientPlayNetworking.canSend(RequestWorkshopItemCatalogPayload.ID)) {
+			return;
+		}
+		RequestWorkshopItemCatalogPayload request = ClientWorkshopSearchState.requestCatalog(snapshot, refreshSelected);
+		if (request != null) {
+			ClientPlayNetworking.send(request);
+		}
 	}
 
 	private void highlightOne(ClientWorkshopContainerSearchResult selected) {
@@ -440,7 +518,7 @@ public final class WorkshopScreenController {
 	}
 
 	private int toolbarButtonAt(double mouseX, double mouseY) {
-		int count = ClientWorkshopSearchState.selectedItem() == null ? 2 : 5;
+		int count = ClientWorkshopSearchState.selectedItem() == null ? 3 : 5;
 		List<WorkshopSidebarMetrics.Rect> buttons = toolbarButtons(count);
 		for (int index = 0; index < buttons.size(); index++) {
 			if (buttons.get(index).contains(mouseX, mouseY)) {
