@@ -14,10 +14,9 @@ import net.minecraft.inventory.Inventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.recipe.CraftingRecipe;
 import net.minecraft.recipe.RecipeEntry;
-import net.minecraft.registry.Registries;
+import net.minecraft.screen.CraftingScreenHandler;
 import net.minecraft.server.network.ServerPlayerEntity;
 import net.minecraft.server.world.ServerWorld;
-import net.minecraft.util.Identifier;
 import net.minecraft.util.math.BlockPos;
 
 import java.util.ArrayList;
@@ -30,6 +29,8 @@ import java.util.Objects;
 import java.util.Set;
 
 public final class WorkshopCraftPlanBuilder {
+	public static final int MAX_BATCH_ITERATIONS = 64;
+
 	private final WorkshopSearchContainerCollector containerCollector;
 	private final CraftPermission craftPermission;
 
@@ -49,19 +50,53 @@ public final class WorkshopCraftPlanBuilder {
 	public WorkshopCraftPlanBuildResult build(
 		ServerPlayerEntity player,
 		WorkshopSession session,
-		WorkshopCraftParsedRecipe recipe
+		WorkshopCraftParsedRecipe recipe,
+		CraftingScreenHandler handler,
+		WorkshopCraftMode requestedMode,
+		int requestedIterations
 	) {
 		try {
+			if (requestedMode == null || requestedIterations < 0 || requestedIterations > MAX_BATCH_ITERATIONS) {
+				return WorkshopCraftPlanBuildResult.failure(WorkshopCraftPlanStatus.INTERNAL_ERROR);
+			}
 			List<WorkshopCraftSupply> supplies = new ArrayList<>();
 			Map<Integer, WorkshopCraftLiveSupply> liveSupplies = new HashMap<>();
-			int nextSupplyId = collectPlayerSupplies(player, supplies, liveSupplies);
-			var playerOnly = WorkshopCraftAssignmentSolver.solve(recipe.ingredientSlots(), supplies);
-			if (playerOnly.isPresent()) {
-				return finish(recipe, playerOnly.orElseThrow(), liveSupplies);
+			int nextSupplyId = collectPlayerSupplies(player, handler, supplies, liveSupplies);
+			int searchLimit = requestedMode == WorkshopCraftMode.BATCH ? MAX_BATCH_ITERATIONS : 1;
+			int playerOnlyMaxIterations = WorkshopCraftAssignmentSolver.maxIterations(
+				recipe.ingredientSlots(), supplies, searchLimit
+			);
+			if (requestedMode == WorkshopCraftMode.SINGLE && playerOnlyMaxIterations == 1) {
+				return finish(
+					recipe, WorkshopCraftMode.SINGLE, 1, 1, 1,
+					WorkshopCraftAssignmentSolver.solve(recipe.ingredientSlots(), supplies, 1).orElseThrow(), liveSupplies
+				);
+			}
+			if (requestedMode == WorkshopCraftMode.BATCH
+				&& requestedIterations == 0 && playerOnlyMaxIterations == MAX_BATCH_ITERATIONS) {
+				return finish(
+					recipe, WorkshopCraftMode.BATCH, MAX_BATCH_ITERATIONS,
+					MAX_BATCH_ITERATIONS, MAX_BATCH_ITERATIONS,
+					WorkshopCraftAssignmentSolver.solve(
+						recipe.ingredientSlots(), supplies, MAX_BATCH_ITERATIONS
+					).orElseThrow(),
+					liveSupplies
+				);
 			}
 
 			WorkshopSearchContainerCollector.Result collected = containerCollector.collect(player, session);
 			if (collected.containers().isEmpty()) {
+				int planned = requestedMode == WorkshopCraftMode.SINGLE
+					? 1 : requestedIterations > 0 ? requestedIterations : playerOnlyMaxIterations;
+				if (planned > 0 && playerOnlyMaxIterations >= planned) {
+					WorkshopCraftMode actualMode = requestedMode == WorkshopCraftMode.BATCH && planned > 1
+						? WorkshopCraftMode.BATCH : WorkshopCraftMode.SINGLE;
+					return finish(
+						recipe, actualMode, planned, playerOnlyMaxIterations, playerOnlyMaxIterations,
+						WorkshopCraftAssignmentSolver.solve(recipe.ingredientSlots(), supplies, planned).orElseThrow(),
+						liveSupplies
+					);
+				}
 				return WorkshopCraftPlanBuildResult.failure(WorkshopCraftPlanStatus.NO_ACCESSIBLE_CONTAINERS);
 			}
 			ServerWorld world = player.getServerWorld();
@@ -98,21 +133,37 @@ public final class WorkshopCraftPlanBuilder {
 							continue;
 						}
 						WorkshopCraftSupply supply = new WorkshopCraftSupply(
-							nextSupplyId++, WorkshopCraftSourceKind.STORAGE, variant, stack.getCount(), stableOrder++
+							nextSupplyId++, WorkshopCraftSourceKind.STORAGE, variant, stack.getCount(),
+							maxCraftingCount(handler, stack), stableOrder++
 						);
 						supplies.add(supply);
 						liveSupplies.put(supply.id(), new WorkshopCraftLiveSupply(supply, inventory, slot, container));
 					}
 				}
 			}
-			var assignment = WorkshopCraftAssignmentSolver.solve(recipe.ingredientSlots(), supplies);
-			if (assignment.isEmpty()) {
+			int combinedMaxIterations = WorkshopCraftAssignmentSolver.maxIterations(
+				recipe.ingredientSlots(), supplies, searchLimit
+			);
+			int plannedIterations = requestedMode == WorkshopCraftMode.SINGLE
+				? 1 : requestedIterations > 0 ? requestedIterations : combinedMaxIterations;
+			if (combinedMaxIterations < plannedIterations || plannedIterations <= 0) {
 				return WorkshopCraftPlanBuildResult.failure(
 					matchingStorageDenied && matchingStorageSeen
 						? WorkshopCraftPlanStatus.DENIED : WorkshopCraftPlanStatus.INSUFFICIENT
 				);
 			}
-			return finish(recipe, assignment.orElseThrow(), liveSupplies);
+			var assignment = WorkshopCraftAssignmentSolver.solve(
+				recipe.ingredientSlots(), supplies, plannedIterations
+			);
+			if (assignment.isEmpty()) {
+				return WorkshopCraftPlanBuildResult.failure(WorkshopCraftPlanStatus.INSUFFICIENT);
+			}
+			WorkshopCraftMode actualMode = requestedMode == WorkshopCraftMode.BATCH && plannedIterations > 1
+				? WorkshopCraftMode.BATCH : WorkshopCraftMode.SINGLE;
+			return finish(
+				recipe, actualMode, plannedIterations, playerOnlyMaxIterations, combinedMaxIterations,
+				assignment.orElseThrow(), liveSupplies
+			);
 		} catch (RuntimeException exception) {
 			WorkshopZone.LOGGER.error("Failed to build workshop crafting plan safely", exception);
 			return WorkshopCraftPlanBuildResult.failure(WorkshopCraftPlanStatus.INTERNAL_ERROR);
@@ -121,6 +172,7 @@ public final class WorkshopCraftPlanBuilder {
 
 	private static int collectPlayerSupplies(
 		ServerPlayerEntity player,
+		CraftingScreenHandler handler,
 		List<WorkshopCraftSupply> supplies,
 		Map<Integer, WorkshopCraftLiveSupply> liveSupplies
 	) {
@@ -133,7 +185,8 @@ public final class WorkshopCraftPlanBuilder {
 				continue;
 			}
 			WorkshopCraftSupply supply = new WorkshopCraftSupply(
-				nextSupplyId++, WorkshopCraftSourceKind.PLAYER, ItemVariant.of(stack), stack.getCount(), stableOrder++
+				nextSupplyId++, WorkshopCraftSourceKind.PLAYER, ItemVariant.of(stack), stack.getCount(),
+				maxCraftingCount(handler, stack), stableOrder++
 			);
 			supplies.add(supply);
 			liveSupplies.put(supply.id(), new WorkshopCraftLiveSupply(supply, inventory, slot, null));
@@ -143,6 +196,10 @@ public final class WorkshopCraftPlanBuilder {
 
 	private static WorkshopCraftPlanBuildResult finish(
 		WorkshopCraftParsedRecipe recipe,
+		WorkshopCraftMode craftMode,
+		int plannedIterations,
+		int playerOnlyMaxIterations,
+		int combinedMaxIterations,
 		WorkshopCraftAssignmentSolver.Result assignment,
 		Map<Integer, WorkshopCraftLiveSupply> liveSupplies
 	) {
@@ -150,27 +207,36 @@ public final class WorkshopCraftPlanBuilder {
 		if (placements.size() != recipe.ingredientSlots().size()) {
 			return WorkshopCraftPlanBuildResult.failure(WorkshopCraftPlanStatus.INTERNAL_ERROR);
 		}
-		Map<Identifier, SummaryBuilder> summaries = new LinkedHashMap<>();
+		Map<ItemVariant, SummaryBuilder> summaries = new LinkedHashMap<>();
 		Set<BlockPos> usedContainers = new HashSet<>();
-		for (WorkshopCraftAssignment value : assignment.assignments()) {
-			Identifier itemId = Registries.ITEM.getId(value.variant().getItem());
-			SummaryBuilder summary = summaries.computeIfAbsent(itemId, ignored -> new SummaryBuilder(value.variant()));
-			if (value.sourceKind() == WorkshopCraftSourceKind.PLAYER) {
-				summary.playerAmount++;
-			} else {
-				summary.storageAmount++;
-				WorkshopCraftLiveSupply live = liveSupplies.get(value.supplyId());
-				if (live != null && live.container() != null) {
-					usedContainers.add(live.container().representativePosition());
-				}
+		for (WorkshopCraftSourceAllocation allocation : assignment.sourceAllocations()) {
+			WorkshopCraftLiveSupply live = liveSupplies.get(allocation.supplyId());
+			if (live == null) {
+				return WorkshopCraftPlanBuildResult.failure(WorkshopCraftPlanStatus.INTERNAL_ERROR);
+			}
+			SummaryBuilder summary = summaries.computeIfAbsent(
+				live.supply().variant(), ignored -> new SummaryBuilder(live.supply().variant())
+			);
+			summary.add(allocation.sourceKind(), allocation.amount());
+			if (allocation.sourceKind() == WorkshopCraftSourceKind.STORAGE && live.container() != null) {
+				usedContainers.add(live.container().representativePosition());
 			}
 		}
 		List<WorkshopCraftMaterialSummary> materialSummaries = summaries.values().stream()
 			.map(SummaryBuilder::build).toList();
 		return WorkshopCraftPlanBuildResult.available(new WorkshopCraftPlan(
-			recipe, assignment.assignments(), placements, liveSupplies, materialSummaries,
+			recipe, craftMode, plannedIterations, playerOnlyMaxIterations, combinedMaxIterations,
+			assignment.assignments(), assignment.sourceAllocations(), placements, liveSupplies, materialSummaries,
 			assignment.playerItemCount(), assignment.storageItemCount(), usedContainers.size()
 		));
+	}
+
+	private static int maxCraftingCount(CraftingScreenHandler handler, ItemStack stack) {
+		int maxCount = stack.getMaxCount();
+		for (int slot = 1; slot <= 9; slot++) {
+			maxCount = Math.min(maxCount, handler.getSlot(slot).getMaxItemCount(stack));
+		}
+		return Math.max(0, maxCount);
 	}
 
 	@FunctionalInterface
@@ -192,6 +258,14 @@ public final class WorkshopCraftPlanBuilder {
 
 		private SummaryBuilder(ItemVariant representative) {
 			this.representative = representative;
+		}
+
+		private void add(WorkshopCraftSourceKind sourceKind, int amount) {
+			if (sourceKind == WorkshopCraftSourceKind.PLAYER) {
+				playerAmount += amount;
+			} else {
+				storageAmount += amount;
+			}
 		}
 
 		private WorkshopCraftMaterialSummary build() {

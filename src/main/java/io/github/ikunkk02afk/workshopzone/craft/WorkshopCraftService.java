@@ -51,21 +51,24 @@ public final class WorkshopCraftService {
 	) {
 		WorkshopSession session = sessions.get(player.getUuid()).orElse(null);
 		pending.clear(player.getUuid());
-		if (craftAll) {
-			return failure(session, syncId, recipeId, WorkshopCraftPreviewResultCode.NOT_NEEDED, ItemStack.EMPTY);
-		}
+		WorkshopCraftMode requestedMode = craftAll ? WorkshopCraftMode.BATCH : WorkshopCraftMode.SINGLE;
 		RecipeEntry<?> entry = player.getServer().getRecipeManager().get(recipeId).orElse(null);
 		if (entry == null || !player.getRecipeBook().contains(entry)) {
 			return failure(session, syncId, recipeId, WorkshopCraftPreviewResultCode.UNSUPPORTED_RECIPE, ItemStack.EMPTY);
 		}
-		try {
-			RecipeMatcher vanillaPlayerMatcher = new RecipeMatcher();
-			player.getInventory().populateRecipeFinder(vanillaPlayerMatcher);
-			if (vanillaPlayerMatcher.match(entry.value(), null)) {
-				return failure(session, syncId, recipeId, WorkshopCraftPreviewResultCode.NOT_NEEDED, ItemStack.EMPTY);
+		if (requestedMode == WorkshopCraftMode.SINGLE) {
+			try {
+				RecipeMatcher vanillaPlayerMatcher = new RecipeMatcher();
+				player.getInventory().populateRecipeFinder(vanillaPlayerMatcher);
+				if (vanillaPlayerMatcher.match(entry.value(), null)) {
+					return failure(
+						session, syncId, recipeId, WorkshopCraftPreviewResultCode.NOT_NEEDED,
+						WorkshopCraftMode.SINGLE, ItemStack.EMPTY
+					);
+				}
+			} catch (RuntimeException exception) {
+				WorkshopZone.LOGGER.debug("Could not safely inspect vanilla player recipe availability for {}", recipeId, exception);
 			}
-		} catch (RuntimeException exception) {
-			WorkshopZone.LOGGER.debug("Could not safely inspect vanilla player recipe availability for {}", recipeId, exception);
 		}
 		if (player.isSpectator()
 			|| !(player.currentScreenHandler instanceof CraftingScreenHandler handler)
@@ -90,25 +93,33 @@ public final class WorkshopCraftService {
 			return failure(session, syncId, recipeId, WorkshopCraftPreviewResultCode.COOLDOWN, parsed.output());
 		}
 		lastPreviewTicks.put(player.getUuid(), now);
-		WorkshopCraftPlanBuildResult built = planBuilder.build(player, session, parsed);
+		WorkshopCraftPlanBuildResult built = planBuilder.build(player, session, parsed, handler, requestedMode, 0);
 		if (built.status() != WorkshopCraftPlanStatus.AVAILABLE) {
 			return failure(session, syncId, recipeId, previewResult(built.status()), parsed.output());
 		}
 		WorkshopCraftPlan plan = built.plan();
-		if (plan.storageItemCount() == 0) {
-			return failure(session, syncId, recipeId, WorkshopCraftPreviewResultCode.NOT_NEEDED, parsed.output());
+		if (plan.storageItemCount() == 0
+			|| requestedMode == WorkshopCraftMode.BATCH
+				&& plan.combinedMaxIterations() <= plan.playerOnlyMaxIterations()) {
+			return failure(
+				session, syncId, recipeId, WorkshopCraftPreviewResultCode.NOT_NEEDED, requestedMode, parsed.output()
+			);
 		}
 		long previewId = nextPreviewId.incrementAndGet();
 		long expiresAt = now + PREVIEW_LIFETIME_TICKS;
 		WorkshopCraftPendingConfirmation confirmation = new WorkshopCraftPendingConfirmation(
 			previewId, player.getUuid(), session.sessionId(), session.revision(), syncId, recipeId,
-			now, expiresAt, Registries.ITEM.getId(plan.recipe().output().getItem()), plan.recipe().output().getCount(),
+			plan.craftMode(), plan.plannedIterations(), now, expiresAt,
+			Registries.ITEM.getId(plan.recipe().output().getItem()), plan.recipe().output().getCount(),
 			plan.materialSummaries()
 		);
 		pending.put(confirmation);
 		return new WorkshopCraftPreviewPayload(
 			previewId, session.sessionId(), session.revision(), syncId, recipeId,
-			WorkshopCraftPreviewResultCode.AVAILABLE, plan.recipe().output(), plan.materialSummaries(),
+			WorkshopCraftPreviewResultCode.AVAILABLE, plan.craftMode(), plan.recipe().output(), plan.materialSummaries(),
+			plan.plannedIterations(), plan.recipe().output().getCount(),
+			(long)plan.recipe().output().getCount() * plan.plannedIterations(),
+			plan.playerOnlyMaxIterations(), plan.combinedMaxIterations(),
 			plan.storageItemCount(), plan.usedContainerCount(), PREVIEW_LIFETIME_TICKS
 		);
 	}
@@ -125,19 +136,13 @@ public final class WorkshopCraftService {
 			);
 		}
 		if (!request.accept()) {
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-				WorkshopCraftExecutionResultCode.CANCELLED
-			);
+			return executionFailure(confirmation, WorkshopCraftExecutionResultCode.CANCELLED);
 		}
 		long now = player.getServerWorld().getTime();
 		long previous = lastConfirmTicks.getOrDefault(player.getUuid(), now - CONFIRM_COOLDOWN_TICKS);
 		lastConfirmTicks.put(player.getUuid(), now);
 		if (now - previous < CONFIRM_COOLDOWN_TICKS) {
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-				WorkshopCraftExecutionResultCode.INVALID_CONFIRMATION
-			);
+			return executionFailure(confirmation, WorkshopCraftExecutionResultCode.INVALID_CONFIRMATION);
 		}
 		WorkshopSession session = sessions.get(player.getUuid()).orElse(null);
 		WorkshopCraftPendingValidation validation = WorkshopCraftPendingChecks.validate(
@@ -152,32 +157,21 @@ public final class WorkshopCraftService {
 				case INVALID_CONFIRMATION -> WorkshopCraftExecutionResultCode.INVALID_CONFIRMATION;
 				case VALID -> throw new IllegalStateException("Unexpected valid confirmation branch");
 			};
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(), result
-			);
+			return executionFailure(confirmation, result);
 		}
 		if (player.isSpectator()
 			|| session.openedBlockType() != WorkshopBlockType.CRAFTING_TABLE
 			|| sessions.validate(player, session) != WorkshopSessionValidation.VALID
 			|| !(player.currentScreenHandler instanceof CraftingScreenHandler handler)
 			|| !handler.canUse(player)) {
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-				WorkshopCraftExecutionResultCode.STALE_SESSION
-			);
+			return executionFailure(confirmation, WorkshopCraftExecutionResultCode.STALE_SESSION);
 		}
 		if (!isGridEmpty(handler)) {
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-				WorkshopCraftExecutionResultCode.GRID_CHANGED
-			);
+			return executionFailure(confirmation, WorkshopCraftExecutionResultCode.GRID_CHANGED);
 		}
 		RecipeEntry<?> currentEntry = player.getServer().getRecipeManager().get(confirmation.recipeId()).orElse(null);
 		if (currentEntry == null || !player.getRecipeBook().contains(currentEntry)) {
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-				WorkshopCraftExecutionResultCode.RECIPE_CHANGED
-			);
+			return executionFailure(confirmation, WorkshopCraftExecutionResultCode.RECIPE_CHANGED);
 		}
 		WorkshopCraftParsedRecipe parsed = WorkshopCraftRecipeParser.parse(
 			currentEntry, player.getServerWorld().getRegistryManager()
@@ -185,40 +179,44 @@ public final class WorkshopCraftService {
 		if (parsed == null
 			|| !Registries.ITEM.getId(parsed.output().getItem()).equals(confirmation.previewOutputItemId())
 			|| parsed.output().getCount() != confirmation.previewOutputCount()) {
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-				WorkshopCraftExecutionResultCode.RECIPE_CHANGED
-			);
+			return executionFailure(confirmation, WorkshopCraftExecutionResultCode.RECIPE_CHANGED);
 		}
-		WorkshopCraftPlanBuildResult rebuilt = planBuilder.build(player, session, parsed);
+		WorkshopCraftPlanBuildResult rebuilt = planBuilder.build(
+			player, session, parsed, handler, confirmation.craftMode(), confirmation.plannedIterations()
+		);
 		if (rebuilt.status() != WorkshopCraftPlanStatus.AVAILABLE) {
-			WorkshopCraftExecutionResultCode result = rebuilt.status() == WorkshopCraftPlanStatus.DENIED
+			WorkshopCraftExecutionResultCode result = confirmation.craftMode() == WorkshopCraftMode.BATCH
+				&& rebuilt.status() != WorkshopCraftPlanStatus.DENIED
+				&& rebuilt.status() != WorkshopCraftPlanStatus.INTERNAL_ERROR
+				? WorkshopCraftExecutionResultCode.BATCH_CHANGED
+				: rebuilt.status() == WorkshopCraftPlanStatus.DENIED
 				? WorkshopCraftExecutionResultCode.ACCESS_DENIED
 				: rebuilt.status() == WorkshopCraftPlanStatus.INTERNAL_ERROR
 					? WorkshopCraftExecutionResultCode.INTERNAL_ERROR
 					: WorkshopCraftExecutionResultCode.MATERIALS_CHANGED;
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(), result
-			);
+			return executionFailure(confirmation, result);
 		}
 		WorkshopCraftPlan plan = rebuilt.plan();
+		if (plan.plannedIterations() != confirmation.plannedIterations()) {
+			return executionFailure(
+				confirmation,
+				confirmation.craftMode() == WorkshopCraftMode.BATCH
+					? WorkshopCraftExecutionResultCode.BATCH_CHANGED
+					: WorkshopCraftExecutionResultCode.MATERIALS_CHANGED
+			);
+		}
 		try {
 			if (!WorkshopCraftTransactionExecutor.execute(plan, handler, player)) {
-				return executionFailure(
-					confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-					WorkshopCraftExecutionResultCode.TRANSACTION_FAILED
-				);
+				return executionFailure(confirmation, WorkshopCraftExecutionResultCode.TRANSACTION_FAILED);
 			}
 		} catch (RuntimeException exception) {
 			WorkshopZone.LOGGER.error("Workshop crafting transaction failed safely", exception);
-			return executionFailure(
-				confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), confirmation.recipeId(),
-				WorkshopCraftExecutionResultCode.TRANSACTION_FAILED
-			);
+			return executionFailure(confirmation, WorkshopCraftExecutionResultCode.TRANSACTION_FAILED);
 		}
 		return new WorkshopCraftExecutionResultPayload(
 			confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(),
-			WorkshopCraftExecutionResultCode.SUCCESS, confirmation.recipeId(), plan.assignments().size(),
+			WorkshopCraftExecutionResultCode.SUCCESS, confirmation.recipeId(), plan.craftMode(), plan.plannedIterations(),
+			plan.assignments().size() * plan.plannedIterations(),
 			plan.playerItemCount(), plan.storageItemCount(), plan.usedContainerCount()
 		);
 	}
@@ -269,9 +267,31 @@ public final class WorkshopCraftService {
 		WorkshopCraftPreviewResultCode result,
 		ItemStack output
 	) {
+		return failure(session, syncId, recipeId, result, WorkshopCraftMode.SINGLE, output);
+	}
+
+	private static WorkshopCraftPreviewPayload failure(
+		WorkshopSession session,
+		int syncId,
+		Identifier recipeId,
+		WorkshopCraftPreviewResultCode result,
+		WorkshopCraftMode craftMode,
+		ItemStack output
+	) {
 		return new WorkshopCraftPreviewPayload(
 			0, session == null ? 0 : session.sessionId(), session == null ? 0 : session.revision(),
-			Math.max(0, syncId), recipeId, result, output, List.of(), 0, 0, 0
+			Math.max(0, syncId), recipeId, result, craftMode, output, List.of(),
+			0, output.isEmpty() ? 0 : output.getCount(), 0, 0, 0, 0, 0, 0
+		);
+	}
+
+	private static WorkshopCraftExecutionResultPayload executionFailure(
+		WorkshopCraftPendingConfirmation confirmation,
+		WorkshopCraftExecutionResultCode result
+	) {
+		return new WorkshopCraftExecutionResultPayload(
+			confirmation.previewId(), confirmation.sessionId(), confirmation.syncId(), result,
+			confirmation.recipeId(), confirmation.craftMode(), confirmation.plannedIterations(), 0, 0, 0, 0
 		);
 	}
 
@@ -283,7 +303,8 @@ public final class WorkshopCraftService {
 		WorkshopCraftExecutionResultCode result
 	) {
 		return new WorkshopCraftExecutionResultPayload(
-			previewId, Math.max(0, sessionId), Math.max(0, syncId), result, recipeId, 0, 0, 0, 0
+			previewId, Math.max(0, sessionId), Math.max(0, syncId), result, recipeId,
+			WorkshopCraftMode.SINGLE, 1, 0, 0, 0, 0
 		);
 	}
 }

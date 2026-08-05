@@ -91,7 +91,9 @@ public final class ClientWorkshopCraftState {
 	static void acceptExecution(MinecraftClient client, WorkshopCraftExecutionResultPayload payload) {
 		if (payload == null || currentPreview == null) return;
 		if (!WorkshopCraftClientFilter.acceptExecution(
-			payload, currentPreview.previewId(), currentSessionId, currentSyncId, lastAcceptedExecutionPreviewId
+			payload, currentPreview.previewId(), currentSessionId, currentSyncId,
+			currentPreview.recipeId(), currentPreview.craftMode(), currentPreview.plannedIterations(),
+			lastAcceptedExecutionPreviewId
 		)) {
 			return;
 		}

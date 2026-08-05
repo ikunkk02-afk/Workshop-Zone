@@ -1,5 +1,6 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
+import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftMode;
 import io.github.ikunkk02afk.workshopzone.mixin.client.HandledScreenAccessor;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.font.TextRenderer;
@@ -46,28 +47,40 @@ public final class WorkshopCraftConfirmationOverlay {
 		}
 		Bounds bounds = bounds();
 		TextRenderer renderer = client.textRenderer;
+		WorkshopCraftPreviewView view = WorkshopCraftPreviewView.from(ClientWorkshopCraftState.preview());
 		context.fill(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + bounds.height, 0xF0181818);
 		context.fill(bounds.x, bounds.y, bounds.x + bounds.width, bounds.y + 1, 0xFFE0A83A);
 		context.drawTextWithShadow(renderer, WorkshopTextLayout.ellipsize(
 			renderer,
-			Text.translatable("gui.workshop_zone.craft.confirm.title"),
+			Text.translatable(WorkshopCraftClientFilter.titleKey(view.craftMode())),
 			Math.max(0, bounds.width - 16)
 		), bounds.x + 8, bounds.y + 7, 0xFFFFFFFF);
 
-		WorkshopCraftPreviewView view = WorkshopCraftPreviewView.from(ClientWorkshopCraftState.preview());
 		ItemStack output = view.output();
 		context.drawItem(output, bounds.x + 8, bounds.y + 22);
 		context.drawItemInSlot(renderer, output, bounds.x + 8, bounds.y + 22);
 		context.drawTextWithShadow(renderer, WorkshopTextLayout.ellipsize(
 			renderer,
-			Text.translatable("gui.workshop_zone.craft.confirm.output", output.getName(), output.getCount()),
+			Text.translatable("gui.workshop_zone.craft.confirm.total_output", output.getName(), view.totalOutputCount()),
 			Math.max(0, bounds.width - 40)
 		), bounds.x + 32, bounds.y + 27, 0xFFFFFFFF);
 
 		int textY = bounds.y + 46;
-		List<OrderedText> description = renderer.wrapLines(Text.translatable("gui.workshop_zone.craft.confirm.description"), bounds.width - 16);
+		List<OrderedText> description = renderer.wrapLines(
+			Text.translatable(WorkshopCraftClientFilter.descriptionKey(view.craftMode())), bounds.width - 16
+		);
 		for (OrderedText line : description.subList(0, Math.min(2, description.size()))) {
 			context.drawTextWithShadow(renderer, line, bounds.x + 8, textY, 0xFFD0D0D0);
+			textY += 10;
+		}
+		if (view.craftMode() == WorkshopCraftMode.BATCH) {
+			context.drawTextWithShadow(renderer, Text.translatable(
+				"gui.workshop_zone.craft.confirm.iterations", view.plannedIterations()
+			), bounds.x + 8, textY, 0xFFFFFFFF);
+			textY += 10;
+			context.drawTextWithShadow(renderer, Text.translatable(
+				"gui.workshop_zone.craft.confirm.max_iterations", view.combinedMaxIterations()
+			), bounds.x + 8, textY, 0xFFFFD080);
 			textY += 10;
 		}
 
@@ -109,6 +122,7 @@ public final class WorkshopCraftConfirmationOverlay {
 			List<Text> tooltip = List.of(
 				output.getName(),
 				Text.literal(Registries.ITEM.getId(output.getItem()).toString()),
+				Text.translatable("gui.workshop_zone.craft.confirm.total_output", output.getName(), view.totalOutputCount()),
 				Text.translatable("gui.workshop_zone.craft.confirm.recipe_id", ClientWorkshopCraftState.preview().recipeId())
 			);
 			context.drawTooltip(renderer, tooltip, mouseX, mouseY);
@@ -132,7 +146,9 @@ public final class WorkshopCraftConfirmationOverlay {
 		);
 		Text acceptLabel = ClientWorkshopCraftState.isPending()
 			? Text.translatable("gui.workshop_zone.craft.confirm.pending")
-			: Text.translatable("gui.workshop_zone.craft.confirm.accept");
+			: view.craftMode() == WorkshopCraftMode.BATCH
+				? Text.translatable(WorkshopCraftClientFilter.acceptKey(view.craftMode()), view.plannedIterations())
+				: Text.translatable(WorkshopCraftClientFilter.acceptKey(view.craftMode()));
 		context.drawCenteredTextWithShadow(renderer, WorkshopTextLayout.ellipsize(
 			renderer, acceptLabel, Math.max(0, acceptWidth - 4)
 		),
@@ -142,6 +158,11 @@ public final class WorkshopCraftConfirmationOverlay {
 			renderer, Text.translatable("gui.workshop_zone.craft.confirm.cancel"), Math.max(0, cancelWidth - 4)
 		),
 			bounds.x + 8 + acceptWidth + gap + (bounds.width - 16 - acceptWidth - gap) / 2, buttonY + 7, 0xFFFFFFFF);
+		if (renderer.getWidth(acceptLabel) > acceptWidth - 4
+			&& mouseX >= bounds.x + 8 && mouseX < bounds.x + 8 + acceptWidth
+			&& mouseY >= buttonY && mouseY < buttonY + buttonHeight) {
+			context.drawTooltip(renderer, acceptLabel, mouseX, mouseY);
+		}
 	}
 
 	public boolean mouseClicked(double mouseX, double mouseY, int button) {
@@ -152,6 +173,9 @@ public final class WorkshopCraftConfirmationOverlay {
 		int buttonY = bounds.y + bounds.height - 30;
 		int gap = 5;
 		int acceptWidth = (bounds.width - 16 - gap) / 2;
+		if (button != 0) {
+			return true;
+		}
 		if (mouseX >= bounds.x + 8 && mouseX < bounds.x + 8 + acceptWidth
 			&& mouseY >= buttonY && mouseY < buttonY + 22) {
 			ClientWorkshopCraftState.confirm(MinecraftClient.getInstance());
@@ -175,11 +199,13 @@ public final class WorkshopCraftConfirmationOverlay {
 		}
 		Bounds bounds = bounds();
 		TextRenderer renderer = MinecraftClient.getInstance().textRenderer;
+		WorkshopCraftPreviewView view = WorkshopCraftPreviewView.from(ClientWorkshopCraftState.preview());
 		int descriptionLines = Math.min(2, renderer.wrapLines(
-			Text.translatable("gui.workshop_zone.craft.confirm.description"),
+			Text.translatable(WorkshopCraftClientFilter.descriptionKey(view.craftMode())),
 			bounds.width - 16
 		).size());
-		int listTop = bounds.y + 46 + descriptionLines * 10 + 4;
+		int batchDetailsHeight = view.craftMode() == WorkshopCraftMode.BATCH ? 20 : 0;
+		int listTop = bounds.y + 46 + descriptionLines * 10 + batchDetailsHeight + 4;
 		int buttonY = bounds.y + bounds.height - 30;
 		int visibleRows = Math.max(1, (buttonY - 19 - listTop) / 28);
 		ClientWorkshopCraftState.scroll(vertical > 0 ? -1 : 1, visibleRows);

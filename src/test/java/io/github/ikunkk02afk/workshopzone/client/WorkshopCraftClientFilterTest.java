@@ -1,6 +1,7 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftExecutionResultCode;
+import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftMode;
 import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftPreviewResultCode;
 import io.github.ikunkk02afk.workshopzone.network.WorkshopCraftExecutionResultPayload;
 import net.minecraft.util.Identifier;
@@ -32,16 +33,29 @@ class WorkshopCraftClientFilterTest {
 	}
 
 	@Test
+	void singleAndBatchConfirmationUseDistinctStableTranslationKeys() {
+		assertEquals("gui.workshop_zone.craft.confirm.title", WorkshopCraftClientFilter.titleKey(WorkshopCraftMode.SINGLE));
+		assertEquals("gui.workshop_zone.craft.confirm.description", WorkshopCraftClientFilter.descriptionKey(WorkshopCraftMode.SINGLE));
+		assertEquals("gui.workshop_zone.craft.confirm.accept", WorkshopCraftClientFilter.acceptKey(WorkshopCraftMode.SINGLE));
+		assertEquals("gui.workshop_zone.craft.confirm.batch_title", WorkshopCraftClientFilter.titleKey(WorkshopCraftMode.BATCH));
+		assertEquals("gui.workshop_zone.craft.confirm.batch_description", WorkshopCraftClientFilter.descriptionKey(WorkshopCraftMode.BATCH));
+		assertEquals("gui.workshop_zone.craft.confirm.accept_batch", WorkshopCraftClientFilter.acceptKey(WorkshopCraftMode.BATCH));
+	}
+
+	@Test
 	void duplicateOrMismatchedExecutionResultsAreIgnored() {
 		WorkshopCraftExecutionResultPayload result = new WorkshopCraftExecutionResultPayload(
 			51, 11, 9, WorkshopCraftExecutionResultCode.SUCCESS,
-			Identifier.ofVanilla("crafting_table"), 4, 2, 2, 1
+			Identifier.ofVanilla("crafting_table"), WorkshopCraftMode.SINGLE, 1, 4, 2, 2, 1
 		);
-		assertTrue(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, -1));
-		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 52, 11, 9, -1));
-		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 12, 9, -1));
-		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 10, -1));
-		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, 51));
+		Identifier recipeId = Identifier.ofVanilla("crafting_table");
+		assertTrue(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, recipeId, WorkshopCraftMode.SINGLE, 1, -1));
+		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 52, 11, 9, recipeId, WorkshopCraftMode.SINGLE, 1, -1));
+		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 12, 9, recipeId, WorkshopCraftMode.SINGLE, 1, -1));
+		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 10, recipeId, WorkshopCraftMode.SINGLE, 1, -1));
+		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, Identifier.ofVanilla("stick"), WorkshopCraftMode.SINGLE, 1, -1));
+		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, recipeId, WorkshopCraftMode.BATCH, 2, -1));
+		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, recipeId, WorkshopCraftMode.SINGLE, 1, 51));
 	}
 
 	private static boolean acceptPreview(long sessionId, long revision, int syncId, boolean crafting, long lastPreviewId) {

@@ -4,6 +4,8 @@ import io.github.ikunkk02afk.workshopzone.WorkshopZone;
 import io.github.ikunkk02afk.workshopzone.api.WorkshopRemoteOpenCallback;
 import io.github.ikunkk02afk.workshopzone.api.ContainerLabelEditCallback;
 import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftPreviewResultCode;
+import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftExecutionResultCode;
+import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftMode;
 import io.github.ikunkk02afk.workshopzone.craft.WorkshopCraftService;
 import io.github.ikunkk02afk.workshopzone.deposit.WorkshopDepositService;
 import io.github.ikunkk02afk.workshopzone.label.ContainerLabelEntry;
@@ -570,7 +572,14 @@ public final class WorkshopSessionManager {
 	) {
 		WorkshopCraftExecutionResultPayload result = craftService.confirm(player, request);
 		WorkshopNetworking.sendCraftExecutionResult(player, result);
-		player.sendMessage(Text.translatable(result.resultId().translationKey()), true);
+		if (result.resultId() == WorkshopCraftExecutionResultCode.SUCCESS
+			&& result.craftMode() == WorkshopCraftMode.BATCH) {
+			player.sendMessage(Text.translatable(
+				"message.workshop_zone.craft.batch_success", result.plannedIterations()
+			), true);
+		} else {
+			player.sendMessage(Text.translatable(result.resultId().translationKey()), true);
+		}
 		return result;
 	}
 

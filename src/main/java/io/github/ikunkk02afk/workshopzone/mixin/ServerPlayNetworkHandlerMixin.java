@@ -30,17 +30,20 @@ public abstract class ServerPlayNetworkHandlerMixin {
 	private void interceptCraftRequest(CraftRequestC2SPacket packet, CallbackInfo ci) {
 		if (this.player == null) return;
 		if (!(this.player.currentScreenHandler instanceof CraftingScreenHandler)) return;
-		if (packet.shouldCraftAll()) return;
 
 		RecipeEntry<?> entry = this.player.getServer().getRecipeManager().get(packet.getRecipeId()).orElse(null);
 		if (entry == null || !(entry.value() instanceof CraftingRecipe)) return;
 
-		RecipeMatcher matcher = new RecipeMatcher();
-		this.player.getInventory().populateRecipeFinder(matcher);
-		if (matcher.match(entry.value(), null)) return;
+		if (!packet.shouldCraftAll()) {
+			RecipeMatcher matcher = new RecipeMatcher();
+			this.player.getInventory().populateRecipeFinder(matcher);
+			if (matcher.match(entry.value(), null)) return;
+		}
 
 		WorkshopSessionManager manager = WorkshopSessionManager.getInstance();
-		if (manager.previewCraft(this.player, packet.getSyncId(), packet.getRecipeId(), false)) {
+		if (manager.previewCraft(
+			this.player, packet.getSyncId(), packet.getRecipeId(), packet.shouldCraftAll()
+		)) {
 			ci.cancel();
 		}
 	}

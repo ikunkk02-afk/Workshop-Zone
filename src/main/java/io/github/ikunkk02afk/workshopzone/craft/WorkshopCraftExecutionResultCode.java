@@ -15,6 +15,7 @@ public enum WorkshopCraftExecutionResultCode {
 	GRID_CHANGED("grid_changed", "message.workshop_zone.craft.grid_not_empty"),
 	RECIPE_CHANGED("recipe_changed", "message.workshop_zone.craft.unsupported_recipe"),
 	MATERIALS_CHANGED("materials_changed", "message.workshop_zone.craft.materials_changed"),
+	BATCH_CHANGED("batch_changed", "message.workshop_zone.craft.batch_changed"),
 	ACCESS_DENIED("access_denied", "message.workshop_zone.craft.access_denied"),
 	TRANSACTION_FAILED("transaction_failed", "message.workshop_zone.craft.transaction_failed"),
 	INTERNAL_ERROR("internal_error", "message.workshop_zone.craft.internal_error");

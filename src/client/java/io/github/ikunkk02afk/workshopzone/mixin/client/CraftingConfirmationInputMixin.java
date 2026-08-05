@@ -22,8 +22,17 @@ public abstract class CraftingConfirmationInputMixin {
 
 	@Inject(method = "keyPressed", at = @At("HEAD"), cancellable = true)
 	private void blockKeysDuringConfirmation(int keyCode, int scanCode, int modifiers, CallbackInfoReturnable<Boolean> cir) {
-		if (ClientWorkshopCraftState.isVisible() && keyCode == 256) {
-			ClientWorkshopCraftState.cancel(MinecraftClient.getInstance());
+		if (ClientWorkshopCraftState.isVisible()) {
+			if (keyCode == 256) {
+				ClientWorkshopCraftState.cancel(MinecraftClient.getInstance());
+			}
+			cir.setReturnValue(true);
+		}
+	}
+
+	@Inject(method = "charTyped", at = @At("HEAD"), cancellable = true)
+	private void blockTypedCharactersDuringConfirmation(char chr, int modifiers, CallbackInfoReturnable<Boolean> cir) {
+		if (ClientWorkshopCraftState.isVisible()) {
 			cir.setReturnValue(true);
 		}
 	}

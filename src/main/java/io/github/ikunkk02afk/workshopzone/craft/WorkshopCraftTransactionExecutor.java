@@ -38,8 +38,8 @@ public final class WorkshopCraftTransactionExecutor {
 		}
 		InventoryStorage targetStorage = InventoryStorage.of(craftingInventory, null);
 		Map<Integer, Integer> useCounts = new HashMap<>();
-		for (WorkshopCraftAssignment assignment : plan.assignments()) {
-			useCounts.merge(assignment.supplyId(), 1, Integer::sum);
+		for (WorkshopCraftSourceAllocation allocation : plan.sourceAllocations()) {
+			useCounts.merge(allocation.supplyId(), allocation.amount(), Integer::sum);
 		}
 
 		boolean committed = false;
@@ -63,13 +63,13 @@ public final class WorkshopCraftTransactionExecutor {
 				for (WorkshopCraftGridPlacement placement : plan.placements()) {
 					Slot handlerSlot = handler.getSlot(placement.handlerSlotIndex());
 					SingleSlotStorage<ItemVariant> target = targetStorage.getSlot(handlerSlot.getIndex());
-					long amount = target.insert(placement.variant(), 1, transaction);
-					if (amount != 1) {
+					long amount = target.insert(placement.variant(), plan.plannedIterations(), transaction);
+					if (amount != plan.plannedIterations()) {
 						return false;
 					}
 					inserted += amount;
 				}
-				if (inserted != plan.assignments().size()) {
+				if (inserted != (long)plan.assignments().size() * plan.plannedIterations()) {
 					return false;
 				}
 				if (!plan.recipe().entry().value().matches(grid.createRecipeInput(), player.getServerWorld())) {

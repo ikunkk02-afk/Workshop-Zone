@@ -215,26 +215,184 @@ public final class WorkshopCraftGameTests implements FabricGameTest {
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
 	public void doubleChestIsOneLogicalSourceAndCanUseBothHalves(TestContext context) {
 		LogicalContainer doubleChest = doubleChest(context, STORAGE);
-		doubleChest.inventory().setStack(0, new ItemStack(Items.OAK_PLANKS, 2));
-		doubleChest.inventory().setStack(40, new ItemStack(Items.BIRCH_PLANKS, 2));
+		doubleChest.inventory().setStack(0, new ItemStack(Items.OAK_PLANKS, 64));
+		doubleChest.inventory().setStack(40, new ItemStack(Items.BIRCH_PLANKS, 64));
 		Fixture fixture = fixture(context, doubleChest);
-		WorkshopCraftPreviewPayload preview = preview(fixture, CRAFTING_TABLE_RECIPE);
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, CRAFTING_TABLE_RECIPE);
 		context.assertEquals(WorkshopCraftPreviewResultCode.AVAILABLE, preview.resultId(), "Both chest halves should contribute");
+		context.assertEquals(32, preview.plannedIterations(), "Both chest halves should combine into the maximum safe table batch");
 		context.assertEquals(1, preview.usedContainerCount(), "Double chest must count as one logical container");
 		WorkshopCraftExecutionResultPayload result = confirm(fixture, preview);
 		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, result.resultId(), "Double-chest extraction should succeed");
 		context.assertEquals(1, result.usedContainerCount(), "Execution should still count one logical container");
+		for (int slot : List.of(1, 2, 4, 5)) {
+			ItemStack stack = fixture.handler.getSlot(slot).getStack();
+			context.assertEquals(32, stack.getCount(), "Every target slot should contain one complete variant stack");
+			context.assertTrue(stack.isOf(Items.OAK_PLANKS) || stack.isOf(Items.BIRCH_PLANKS),
+				"Each target slot must contain one exact plank variant");
+		}
 		finish(fixture, context);
 	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
-	public void craftAllRequestNeverUsesWorkshopStorage(TestContext context) {
-		Fixture fixture = fixture(context, new ItemStack(Items.OAK_PLANKS, 16));
+	public void craftAllRequestPlansAndAtomicallyFillsTheMaximumBatch(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.OAK_PLANKS, 64));
+		fixture.container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 56));
+		fixture.player.getInventory().setStack(9, new ItemStack(Items.OAK_PLANKS, 8));
+		fixture.player.unlockRecipes(List.of(
+			fixture.player.getServer().getRecipeManager().get(CRAFTING_TABLE_RECIPE).orElseThrow()
+		));
 		WorkshopCraftPreviewPayload preview = fixture.service.preview(
 			fixture.player, fixture.handler.syncId, CRAFTING_TABLE_RECIPE, true
 		);
-		context.assertEquals(WorkshopCraftPreviewResultCode.NOT_NEEDED, preview.resultId(), "Shift/craft-all is outside this phase");
-		context.assertEquals(16, fixture.container.inventory().count(Items.OAK_PLANKS), "Craft-all must not read or extract storage");
+		context.assertEquals(WorkshopCraftPreviewResultCode.AVAILABLE, preview.resultId(), "Storage should extend the Shift batch");
+		context.assertEquals(WorkshopCraftMode.BATCH, preview.craftMode(), "Shift request should produce a batch preview");
+		context.assertEquals(2, preview.playerOnlyMaxIterations(), "Eight player planks support two table crafts");
+		context.assertEquals(32, preview.combinedMaxIterations(), "Combined 128 planks support thirty-two crafts");
+		context.assertEquals(32, preview.plannedIterations(), "Preview should plan the combined maximum");
+		context.assertEquals(32L, preview.totalOutputCount(), "Total output should remain separate from the one-item icon stack");
+		context.assertEquals(120, preview.storageItemCount(), "Preview should count only the planned storage deficit");
+		context.assertEquals(120, fixture.container.inventory().count(Items.OAK_PLANKS), "Preview must not reserve storage");
+
+		WorkshopCraftExecutionResultPayload result = confirm(fixture, preview);
+		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, result.resultId(), "Batch confirmation should succeed");
+		context.assertEquals(WorkshopCraftMode.BATCH, result.craftMode(), "Execution should retain batch mode");
+		context.assertEquals(32, result.plannedIterations(), "Execution should retain the preview quantity");
+		context.assertEquals(128, result.movedIngredientCount(), "Four input slots should each receive thirty-two items");
+		context.assertEquals(8, result.usedPlayerItemCount(), "Player materials should be consumed first");
+		context.assertEquals(120, result.usedStorageItemCount(), "Storage should supply only the deficit");
+		for (int slot : List.of(1, 2, 4, 5)) {
+			context.assertEquals(32, fixture.handler.getSlot(slot).getStack().getCount(), "Each shaped input slot should contain the full batch");
+		}
+		context.assertEquals(0, fixture.player.getInventory().count(Items.OAK_PLANKS), "All planned player planks should move to the grid");
+		context.assertEquals(0, fixture.container.inventory().count(Items.OAK_PLANKS), "All planned storage planks should move to the grid");
+		fixture.handler.onSlotClick(0, 0, SlotActionType.QUICK_MOVE, fixture.player);
+		context.assertEquals(32, fixture.player.getInventory().count(Items.CRAFTING_TABLE), "Vanilla Shift output should craft all prepared inputs");
+		context.assertEquals(0, gridCount(fixture.handler), "Vanilla result slot should consume the complete prepared batch");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void craftAllKeepsVanillaWhenStorageCannotIncreasePlayerMaximum(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.DIRT, 64));
+		fixture.player.getInventory().setStack(9, new ItemStack(Items.OAK_PLANKS, 64));
+		fixture.player.getInventory().setStack(10, new ItemStack(Items.OAK_PLANKS, 64));
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, CRAFTING_TABLE_RECIPE);
+		context.assertEquals(WorkshopCraftPreviewResultCode.NOT_NEEDED, preview.resultId(), "Equal player and combined maxima should keep vanilla craft-all");
+		context.assertEquals(64, fixture.container.inventory().count(Items.DIRT), "Unrelated storage must remain untouched");
+		context.assertEquals(128, fixture.player.getInventory().count(Items.OAK_PLANKS), "Preview comparison must not move player inputs");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void craftAllWithOnlyOneFeasibleIterationDegradesToSingleConfirmation(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.OAK_PLANKS, 4));
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, CRAFTING_TABLE_RECIPE);
+		context.assertEquals(WorkshopCraftPreviewResultCode.AVAILABLE, preview.resultId(), "One feasible storage craft should remain confirmable");
+		context.assertEquals(WorkshopCraftMode.SINGLE, preview.craftMode(), "A one-iteration Shift plan should use the single confirmation UI");
+		context.assertEquals(1, preview.plannedIterations(), "Degraded single plan should prepare one craft");
+		context.assertEquals(1, preview.combinedMaxIterations(), "Combined maximum should remain visible as one");
+		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, confirm(fixture, preview).resultId(), "Degraded single confirmation should execute");
+		context.assertEquals(4, gridCount(fixture.handler), "Degraded single confirmation should place one item per recipe position");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void batchMaterialReductionRejectsWithoutAutomaticDowngrade(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.OAK_PLANKS, 64));
+		fixture.container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 56));
+		fixture.player.getInventory().setStack(9, new ItemStack(Items.OAK_PLANKS, 8));
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, CRAFTING_TABLE_RECIPE);
+		fixture.container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 55));
+		WorkshopCraftExecutionResultPayload result = confirm(fixture, preview);
+		context.assertEquals(WorkshopCraftExecutionResultCode.BATCH_CHANGED, result.resultId(), "Reduced materials must invalidate the advertised batch");
+		context.assertEquals(0, gridCount(fixture.handler), "Invalid batch must not partially fill the grid");
+		context.assertEquals(8, fixture.player.getInventory().count(Items.OAK_PLANKS), "Invalid batch must not consume player materials");
+		context.assertEquals(119, fixture.container.inventory().count(Items.OAK_PLANKS), "Invalid batch must not consume storage materials");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void outputCountAboveOneUsesLongTotalAndVanillaSingleResultStack(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.OAK_LOG, 64));
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, Identifier.ofVanilla("oak_planks"));
+		context.assertEquals(WorkshopCraftMode.BATCH, preview.craftMode(), "Log-to-planks Shift request should be a batch");
+		context.assertEquals(64, preview.plannedIterations(), "One log per slot should reach the hard limit");
+		context.assertEquals(4, preview.outputPerIteration(), "Output icon should retain the recipe's per-craft count");
+		context.assertEquals(256L, preview.totalOutputCount(), "Total output above one stack should use the separate long field");
+		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, confirm(fixture, preview).resultId(), "Batch log refill should execute");
+		context.assertEquals(64, fixture.handler.getSlot(1).getStack().getCount(), "Input slot should receive sixty-four real logs");
+		context.assertEquals(4, fixture.handler.getSlot(0).getStack().getCount(), "Vanilla result slot should still show one recipe result");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void sixteenStackInputCapsBatchAtSixteenIterations(TestContext context) {
+		LogicalContainer container = place(context, STORAGE, Blocks.CHEST.getDefaultState());
+		container.inventory().setStack(0, new ItemStack(Items.ENDER_PEARL, 16));
+		container.inventory().setStack(1, new ItemStack(Items.BLAZE_POWDER, 64));
+		Fixture fixture = fixture(context, container);
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, Identifier.ofVanilla("ender_eye"));
+		context.assertEquals(WorkshopCraftPreviewResultCode.AVAILABLE, preview.resultId(), "Eye of Ender should support workshop batching");
+		context.assertEquals(WorkshopCraftMode.BATCH, preview.craftMode(), "Sixteen crafts should remain a batch");
+		context.assertEquals(16, preview.plannedIterations(), "Ender pearl stack limit should cap the batch at sixteen");
+		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, confirm(fixture, preview).resultId(), "Sixteen-stack batch should execute");
+		context.assertEquals(16, fixture.handler.getSlot(1).getStack().getCount(), "First shapeless input should hold sixteen items");
+		context.assertEquals(16, fixture.handler.getSlot(2).getStack().getCount(), "Second shapeless input should hold sixteen items");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void pistonRecipeFillsAllNineShapedSlotsForThePlannedBatch(TestContext context) {
+		LogicalContainer container = place(context, STORAGE, Blocks.CHEST.getDefaultState());
+		container.inventory().setStack(0, new ItemStack(Items.OAK_PLANKS, 64));
+		container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 32));
+		container.inventory().setStack(2, new ItemStack(Items.COBBLESTONE, 64));
+		container.inventory().setStack(3, new ItemStack(Items.COBBLESTONE, 64));
+		container.inventory().setStack(4, new ItemStack(Items.IRON_INGOT, 32));
+		container.inventory().setStack(5, new ItemStack(Items.REDSTONE, 32));
+		Fixture fixture = fixture(context, container);
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, Identifier.ofVanilla("piston"));
+		context.assertEquals(32, preview.plannedIterations(), "Piston ingredients should support thirty-two complete recipes");
+		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, confirm(fixture, preview).resultId(), "Piston batch should execute");
+		for (int slot = 1; slot <= 9; slot++) {
+			context.assertEquals(32, fixture.handler.getSlot(slot).getStack().getCount(), "Every piston recipe position should contain thirty-two items");
+		}
+		context.assertEquals(Items.PISTON, fixture.handler.getSlot(0).getStack().getItem(), "Vanilla should compute the piston output");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void materialIncreaseAfterPreviewDoesNotSilentlyExpandBatch(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.OAK_PLANKS, 64));
+		fixture.container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 8));
+		fixture.player.getInventory().setStack(9, new ItemStack(Items.OAK_PLANKS, 8));
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, CRAFTING_TABLE_RECIPE);
+		context.assertEquals(20, preview.plannedIterations(), "Initial combined inventory should advertise twenty crafts");
+		fixture.container.inventory().setStack(2, new ItemStack(Items.OAK_PLANKS, 40));
+		WorkshopCraftExecutionResultPayload result = confirm(fixture, preview);
+		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, result.resultId(), "Additional materials should not invalidate the preview");
+		context.assertEquals(20, result.plannedIterations(), "Confirmation must retain the preview quantity instead of expanding it");
+		for (int slot : List.of(1, 2, 4, 5)) {
+			context.assertEquals(20, fixture.handler.getSlot(slot).getStack().getCount(), "Only the advertised twenty crafts should be filled");
+		}
+		context.assertEquals(40, fixture.container.inventory().count(Items.OAK_PLANKS), "Newly added surplus should remain in storage");
+		finish(fixture, context);
+	}
+
+	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
+	public void playerInventoryChangeReallocatesSourcesWithoutChangingPlannedBatch(TestContext context) {
+		Fixture fixture = fixture(context, new ItemStack(Items.OAK_PLANKS, 64));
+		fixture.container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 56));
+		fixture.player.getInventory().setStack(9, new ItemStack(Items.OAK_PLANKS, 8));
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, CRAFTING_TABLE_RECIPE);
+		fixture.container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 48));
+		fixture.player.getInventory().setStack(10, new ItemStack(Items.OAK_PLANKS, 8));
+		WorkshopCraftExecutionResultPayload result = confirm(fixture, preview);
+		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, result.resultId(), "Unchanged combined total should remain feasible");
+		context.assertEquals(32, result.plannedIterations(), "Reallocation must retain the planned batch");
+		context.assertEquals(16, result.usedPlayerItemCount(), "Confirmation should recalculate and prefer the new player materials");
+		context.assertEquals(112, result.usedStorageItemCount(), "Storage should supply the recalculated deficit only");
 		finish(fixture, context);
 	}
 
@@ -264,18 +422,19 @@ public final class WorkshopCraftGameTests implements FabricGameTest {
 	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
-	public void shapelessRecipeUsesStableFirstInputSlotAndKeepsOutputCount(TestContext context) {
+	public void shapelessBatchUsesStableFirstInputSlotsAndKeepsSingleOutputStack(TestContext context) {
 		Identifier recipe = Identifier.ofVanilla("flint_and_steel");
 		LogicalContainer container = place(context, STORAGE, Blocks.CHEST.getDefaultState());
-		container.inventory().setStack(0, new ItemStack(Items.FLINT));
-		container.inventory().setStack(1, new ItemStack(Items.IRON_INGOT));
+		container.inventory().setStack(0, new ItemStack(Items.FLINT, 64));
+		container.inventory().setStack(1, new ItemStack(Items.IRON_INGOT, 64));
 		Fixture fixture = fixture(context, container);
-		WorkshopCraftPreviewPayload preview = preview(fixture, recipe);
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, recipe);
 		context.assertEquals(WorkshopCraftPreviewResultCode.AVAILABLE, preview.resultId(), "Vanilla shapeless recipe should be supported");
+		context.assertEquals(64, preview.plannedIterations(), "Shapeless batch should reach the safe limit");
 		context.assertEquals(1, preview.output().getCount(), "Static recipe output count should be preserved");
 		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, confirm(fixture, preview).resultId(), "Shapeless refill should succeed");
-		context.assertTrue(fixture.handler.getSlot(1).hasStack(), "Shapeless input should begin at the first stable grid slot");
-		context.assertTrue(fixture.handler.getSlot(2).hasStack(), "Second shapeless input should use the next stable grid slot");
+		context.assertEquals(64, fixture.handler.getSlot(1).getStack().getCount(), "Shapeless input should begin at the first stable grid slot");
+		context.assertEquals(64, fixture.handler.getSlot(2).getStack().getCount(), "Second shapeless input should use the next stable grid slot");
 		context.assertEquals(Items.FLINT_AND_STEEL, fixture.handler.getSlot(0).getStack().getItem(), "Vanilla should compute the shapeless output");
 		context.assertEquals(1, fixture.handler.getSlot(0).getStack().getCount(), "Vanilla output count should remain one");
 		finish(fixture, context);
@@ -325,17 +484,18 @@ public final class WorkshopCraftGameTests implements FabricGameTest {
 	}
 
 	@GameTest(templateName = FabricGameTest.EMPTY_STRUCTURE)
-	public void twoPlayersCompetingForSameMaterialsOnlyOneSucceeds(TestContext context) {
-		Fixture first = fixture(context, new ItemStack(Items.OAK_PLANKS, 4));
+	public void twoPlayersCompetingForSameBatchOnlyOneSucceeds(TestContext context) {
+		Fixture first = fixture(context, new ItemStack(Items.OAK_PLANKS, 64));
+		first.container.inventory().setStack(1, new ItemStack(Items.OAK_PLANKS, 64));
 		Fixture second = fixture(context, first.container);
 		WorkshopCraftService sharedService = new WorkshopCraftService(first.manager);
-		WorkshopCraftPreviewPayload firstPreview = preview(sharedService, first, CRAFTING_TABLE_RECIPE);
-		WorkshopCraftPreviewPayload secondPreview = preview(sharedService, second, CRAFTING_TABLE_RECIPE);
+		WorkshopCraftPreviewPayload firstPreview = previewBatch(sharedService, first, CRAFTING_TABLE_RECIPE);
+		WorkshopCraftPreviewPayload secondPreview = previewBatch(sharedService, second, CRAFTING_TABLE_RECIPE);
 		WorkshopCraftExecutionResultPayload firstResult = sharedService.confirm(first.player, new ConfirmWorkshopCraftPayload(firstPreview.previewId(), true));
 		WorkshopCraftExecutionResultPayload secondResult = sharedService.confirm(second.player, new ConfirmWorkshopCraftPayload(secondPreview.previewId(), true));
 		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, firstResult.resultId(), "First atomic confirmation should win");
-		context.assertEquals(WorkshopCraftExecutionResultCode.MATERIALS_CHANGED, secondResult.resultId(), "Second confirmation should observe depleted storage");
-		context.assertEquals(4, gridCount(first.handler), "Winner should receive exactly one craft in its grid");
+		context.assertEquals(WorkshopCraftExecutionResultCode.BATCH_CHANGED, secondResult.resultId(), "Second confirmation should reject the depleted batch quantity");
+		context.assertEquals(128, gridCount(first.handler), "Winner should receive exactly one prepared batch in its grid");
 		context.assertEquals(0, gridCount(second.handler), "Losing player must receive no partial fill");
 		context.assertEquals(0, first.container.inventory().count(Items.OAK_PLANKS), "Materials must be extracted exactly once");
 		finish(first, context);
@@ -352,8 +512,10 @@ public final class WorkshopCraftGameTests implements FabricGameTest {
 		container.inventory().setStack(4, new ItemStack(Items.EGG));
 		container.inventory().setStack(5, new ItemStack(Items.WHEAT, 3));
 		Fixture fixture = fixture(context, container);
-		WorkshopCraftPreviewPayload preview = preview(fixture, Identifier.ofVanilla("cake"));
+		WorkshopCraftPreviewPayload preview = previewBatch(fixture, Identifier.ofVanilla("cake"));
 		context.assertEquals(WorkshopCraftPreviewResultCode.AVAILABLE, preview.resultId(), "Cake should be a supported shaped recipe");
+		context.assertEquals(WorkshopCraftMode.SINGLE, preview.craftMode(), "Non-stackable milk buckets should degrade the batch to one craft");
+		context.assertEquals(1, preview.combinedMaxIterations(), "Milk bucket input slots must cap the batch at one");
 		context.assertEquals(WorkshopCraftExecutionResultCode.SUCCESS, confirm(fixture, preview).resultId(), "Cake grid refill should succeed");
 		fixture.handler.onSlotClick(0, 0, SlotActionType.PICKUP, fixture.player);
 		context.assertEquals(Items.CAKE, fixture.handler.getCursorStack().getItem(), "Vanilla output slot should provide the cake");
@@ -388,6 +550,20 @@ public final class WorkshopCraftGameTests implements FabricGameTest {
 
 	private static WorkshopCraftPreviewPayload preview(Fixture fixture, Identifier recipeId) {
 		return preview(fixture.service, fixture, recipeId);
+	}
+
+	private static WorkshopCraftPreviewPayload previewBatch(Fixture fixture, Identifier recipeId) {
+		return previewBatch(fixture.service, fixture, recipeId);
+	}
+
+	private static WorkshopCraftPreviewPayload previewBatch(
+		WorkshopCraftService service,
+		Fixture fixture,
+		Identifier recipeId
+	) {
+		RecipeEntry<?> entry = fixture.player.getServer().getRecipeManager().get(recipeId).orElseThrow();
+		fixture.player.unlockRecipes(List.of(entry));
+		return service.preview(fixture.player, fixture.handler.syncId, recipeId, true);
 	}
 
 	private static WorkshopCraftPreviewPayload preview(
