@@ -1,5 +1,7 @@
 # Workshop Zone (工坊域)
 
+![Workshop Zone Cover](src/main/resources/assets/workshop_zone/cover.png)
+
 [简体中文](README.md) | [English](README_EN.md)
 
 [![GitHub Release](https://img.shields.io/github/v/release/ikunkk02-afk/Workshop-Zone?label=release)](https://github.com/ikunkk02-afk/Workshop-Zone/releases/latest)
