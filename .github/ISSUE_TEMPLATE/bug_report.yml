@@ -1,0 +1,119 @@
+name: Bug Report
+description: Report a bug or unexpected behavior in Workshop Zone
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug! Please fill out as much information as possible.
+        **Do not upload tokens, server passwords, or personal information in your report.**
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: A clear description of the issue.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Provide exact steps to reproduce the bug.
+      placeholder: |
+        1. Place a chest near a crafting table.
+        2. Open the crafting table.
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened?
+    validations:
+      required: true
+
+  - type: input
+    id: mc_version
+    attributes:
+      label: Minecraft Version
+      placeholder: "1.21.1"
+    validations:
+      required: true
+
+  - type: input
+    id: loader_version
+    attributes:
+      label: Fabric Loader Version
+      placeholder: "0.19.3"
+    validations:
+      required: true
+
+  - type: input
+    id: fabric_api_version
+    attributes:
+      label: Fabric API Version
+      placeholder: "0.116.15+1.21.1"
+    validations:
+      required: true
+
+  - type: input
+    id: mod_version
+    attributes:
+      label: Workshop Zone Version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: other_mods
+    attributes:
+      label: Other Mods Installed
+      description: List any other mods you have installed.
+      placeholder: "JEI 19.43.0.392, ..."
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Environment
+      options:
+        - Singleplayer
+        - Multiplayer / Dedicated Server
+        - Both
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and Crash Reports
+      description: |
+        Please attach (drag and drop) your `latest.log` or `crash-report` file.
+        You can find these in your `.minecraft/logs/` and `.minecraft/crash-reports/` folders.
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: If applicable, add screenshots to help explain the problem.
+
+  - type: checkboxes
+    id: confirmation
+    attributes:
+      label: Confirmation
+      options:
+        - label: I have not included any tokens, passwords, server IPs, or personal information in this report.
+          required: true
+        - label: I have checked that this issue has not already been reported.
+          required: true

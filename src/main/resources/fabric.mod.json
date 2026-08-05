@@ -3,7 +3,7 @@
 	"id": "workshop_zone",
 	"version": "${version}",
 	"name": "Workshop Zone",
-	"description": "工坊域：面向附近工作区域的服务器端扫描工具。",
+	"description": "Connect nearby containers and workstations into one responsive workshop with quick switching, smart container labels, one-click deposit, inventory search, container highlighting, and warehouse-assisted crafting.",
 	"authors": [
 		"寿云"
 	],
