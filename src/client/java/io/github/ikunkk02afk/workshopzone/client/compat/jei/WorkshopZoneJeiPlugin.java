@@ -4,8 +4,10 @@ import io.github.ikunkk02afk.workshopzone.client.WorkshopSidebarPlacementRegistr
 import io.github.ikunkk02afk.workshopzone.client.WorkshopSidebarWidget;
 import mezz.jei.api.IModPlugin;
 import mezz.jei.api.JeiPlugin;
+import mezz.jei.api.constants.RecipeTypes;
 import mezz.jei.api.gui.handlers.IGuiContainerHandler;
 import mezz.jei.api.registration.IGuiHandlerRegistration;
+import mezz.jei.api.registration.IRecipeTransferRegistration;
 import net.fabricmc.fabric.api.client.screen.v1.Screens;
 import net.minecraft.client.gui.screen.ingame.HandledScreen;
 import net.minecraft.client.util.math.Rect2i;
@@ -20,6 +22,14 @@ public final class WorkshopZoneJeiPlugin implements IModPlugin {
 	@Override
 	public Identifier getPluginUid() {
 		return ID;
+	}
+
+	@Override
+	public void registerRecipeTransferHandlers(IRecipeTransferRegistration registration) {
+		registration.addRecipeTransferHandler(
+			new WorkshopZoneJeiCraftingTransferHandler(registration.getTransferHelper()),
+			RecipeTypes.CRAFTING
+		);
 	}
 
 	@Override

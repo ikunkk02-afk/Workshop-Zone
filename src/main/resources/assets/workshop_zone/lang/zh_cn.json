@@ -252,5 +252,18 @@
   "message.workshop_zone.craft.success": "已使用仓库材料补齐合成栏",
   "message.workshop_zone.craft.cancelled": "已取消使用工坊仓库材料",
   "message.workshop_zone.craft.cooldown": "请求过快，请稍后重试",
-  "message.workshop_zone.craft.internal_error": "补齐工坊材料时发生内部错误"
+  "message.workshop_zone.craft.internal_error": "补齐工坊材料时发生内部错误",
+  "gui.workshop_zone.recipe_viewer.transfer": "使用工坊仓库填充配方",
+  "gui.workshop_zone.recipe_viewer.single": "普通填充",
+  "gui.workshop_zone.recipe_viewer.batch": "最大批量填充",
+  "gui.workshop_zone.recipe_viewer.unsupported_recipe": "该配方暂不支持工坊仓库补齐",
+  "gui.workshop_zone.recipe_viewer.invalid_recipe": "配方信息无效或已过期",
+  "gui.workshop_zone.recipe_viewer.grid_not_empty": "请先清空合成栏",
+  "gui.workshop_zone.recipe_viewer.request_sent": "已发送配方请求",
+  "gui.workshop_zone.recipe_viewer.server_validation": "正在由服务器检查工坊材料",
+  "gui.workshop_zone.recipe_viewer.direct_crafting_unsupported": "Workshop Zone只填充原版合成栏，不直接生成成品",
+  "message.workshop_zone.recipe_viewer.insufficient": "玩家背包与工坊仓库的材料合计仍然不足",
+  "message.workshop_zone.recipe_viewer.stale_screen": "当前工作台界面已失效",
+  "message.workshop_zone.recipe_viewer.duplicate_request": "已忽略重复的配方请求",
+  "message.workshop_zone.recipe_viewer.internal_error": "配方查看器转移已安全失败"
 }

@@ -84,6 +84,13 @@ class RecipeViewerCraftBridgeTest {
 	}
 
 	@Test
+	void validationChecksTheLiveContextWithoutSubmittingOrConsumingDuplicateState() {
+		assertEquals(RecipeViewerTransferResult.READY, RecipeViewerCraftBridge.validate(RECIPE, client));
+		assertTrue(client.clickedBatchValues.isEmpty());
+		assertEquals(RecipeViewerTransferResult.REQUEST_SENT, request(RECIPE, false));
+	}
+
+	@Test
 	void singleRequestUsesVanillaClickRecipeWithBatchFalse() {
 		assertEquals(RecipeViewerTransferResult.REQUEST_SENT, request(RECIPE, false));
 		assertEquals(List.of(false), client.clickedBatchValues);

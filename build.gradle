@@ -99,6 +99,7 @@ sourceSets {
 	test {
 		compileClasspath += sourceSets.client.output
 		runtimeClasspath += sourceSets.client.output
+		runtimeClasspath += sourceSets.client.compileClasspath
 	}
 }
 

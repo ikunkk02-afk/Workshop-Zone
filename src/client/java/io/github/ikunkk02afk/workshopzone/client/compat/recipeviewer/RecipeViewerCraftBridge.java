@@ -30,6 +30,15 @@ public final class RecipeViewerCraftBridge {
 		}
 	}
 
+	public static RecipeViewerTransferResult validate(Identifier recipeId) {
+		try {
+			return validate(recipeId, new MinecraftClientAccess(MinecraftClient.getInstance()));
+		} catch (RuntimeException exception) {
+			WorkshopZone.LOGGER.error("Recipe viewer crafting validation failed safely for {}", recipeId, exception);
+			return RecipeViewerTransferResult.INTERNAL_ERROR;
+		}
+	}
+
 	static RecipeViewerTransferResult request(
 		RecipeViewerSource source,
 		Identifier recipeId,
@@ -40,6 +49,21 @@ public final class RecipeViewerCraftBridge {
 		if (source == null) {
 			return RecipeViewerTransferResult.NOT_APPLICABLE;
 		}
+		RecipeViewerTransferResult validation = validate(recipeId, client);
+		if (validation != RecipeViewerTransferResult.READY) {
+			return validation;
+		}
+		if (!guard.allow(
+			source, recipeId, client.syncId(), batch, client.screenIdentity(), client.clientTick()
+		)) {
+			return RecipeViewerTransferResult.DUPLICATE_REQUEST;
+		}
+
+		client.clickRecipe(batch);
+		return RecipeViewerTransferResult.REQUEST_SENT;
+	}
+
+	static RecipeViewerTransferResult validate(Identifier recipeId, ClientAccess client) {
 		if (client == null || !client.hasClient()) {
 			return RecipeViewerTransferResult.NO_CLIENT;
 		}
@@ -66,14 +90,7 @@ public final class RecipeViewerCraftBridge {
 		if (!client.isCraftingGridEmpty()) {
 			return RecipeViewerTransferResult.GRID_NOT_EMPTY;
 		}
-		if (!guard.allow(
-			source, recipeId, client.syncId(), batch, client.screenIdentity(), client.clientTick()
-		)) {
-			return RecipeViewerTransferResult.DUPLICATE_REQUEST;
-		}
-
-		client.clickRecipe(batch);
-		return RecipeViewerTransferResult.REQUEST_SENT;
+		return RecipeViewerTransferResult.READY;
 	}
 
 	public static void reset() {

@@ -1,6 +1,7 @@
 package io.github.ikunkk02afk.workshopzone.client.compat.recipeviewer;
 
 public enum RecipeViewerTransferResult {
+	READY,
 	REQUEST_SENT,
 	NOT_APPLICABLE,
 	NO_CLIENT,
