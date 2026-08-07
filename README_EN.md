@@ -57,7 +57,7 @@ It does not add new machines or replace the vanilla GUI. Instead, it provides a 
 - No items are moved or reserved before confirmation. Confirmation re-validates: reduced materials cause a full-batch rejection with no partial fill; increased materials do not silently expand the batch.
 - Only the 3×3 grid is filled — the mod does not directly generate output items. The vanilla output slot handles results, remainders, statistics, and unlocks.
 - A batch fill uses a single outer transaction, never a loop of single-craft transactions.
-- JEI, EMI, and REI are optional. The vanilla recipe book (regular and Shift click) is the primary supported workflow.
+- JEI and REI standard crafting-table transfer buttons use the same warehouse-refill pipeline. EMI remains optional and load-safe, but its fill-button takeover is blocked by its current public handler-order API.
 
 ### Responsive Layout
 
@@ -125,17 +125,22 @@ It does not add new machines or replace the vanilla GUI. Instead, it provides a 
 6. Use the search button to find items across the workshop.
 7. In the crafting table, click a recipe-book recipe: confirm when your inventory falls short.
 8. Shift-click a recipe-book recipe for batch material preparation.
-9. Retrieve crafted results from the vanilla output slot after the grid is filled.
+9. With JEI or REI installed, use its standard crafting-table transfer button for the same single/batch refill flow.
+10. Retrieve crafted results from the vanilla output slot after the grid is filled.
 
 > The active scan range follows server-side logic (8 blocks horizontal, 4 blocks vertical). Targets must be in loaded chunks and within accessible range. The mod does not bypass vanilla locks or protection callbacks.
 
-## Recipe Viewer Compatibility
+## Recipe Viewer Crafting Compatibility
 
-- JEI, EMI, and REI are detected automatically.
-- AUTO mode prefers placing the sidebar at the top when a recipe viewer is present, avoiding the right-side item list.
-- Players can manually choose left, right, top, bottom, or custom positions.
-- JEI public exclusion area integration is included.
-- The vanilla recipe book is the primary supported path for warehouse-assisted crafting. Independent recipe-transfer buttons in JEI, EMI, or REI are not guaranteed to trigger workshop refill.
+- Standard 3×3 crafting-table transfers are supported for **JEI 19.43.0.393** and **REI 16.0.799**.
+- A regular transfer requests one refill; JEI max-transfer and REI stacked-transfer request a batch refill.
+- Every request calls vanilla `ClientPlayerInteractionManager#clickRecipe`, then follows `CraftRequestC2SPacket` and the existing server validation/transaction pipeline.
+- If the player's inventory is sufficient, vanilla filling proceeds without a Workshop Zone confirmation. The existing confirmation overlay appears only when workshop storage is required.
+- Workshop Zone only fills the vanilla crafting grid. It never creates output directly or sends crafted items to the cursor or inventory.
+- Recipe viewers remain optional. Their adapter classes are not loaded when the corresponding mod is absent.
+- Only standard `CraftingRecipe` displays with a real Recipe ID are supported. Virtual recipes, machine processing, recursive sub-recipes, and auto-smelting are not supported.
+- JEI and REI sidebar exclusion zones use their public APIs.
+- **EMI 1.1.24+1.21.1 is load-safe but its Fill button is not intercepted in this release.** EMI's public API only appends handlers while its built-in crafting handler is registered first and selected first. Reliable takeover would require prohibited internal access, reflection, or a Mixin.
 
 ## Known Limitations
 
@@ -144,6 +149,7 @@ It does not add new machines or replace the vanilla GUI. Instead, it provides a 
 - There is no persistent workshop core block at this time.
 - The search catalog updates on entering search mode or manual refresh — not every tick.
 - Warehouse-assisted crafting supports only the vanilla 3×3 `CraftingRecipe` grid.
+- EMI Fill is not connected to warehouse refill yet; this awaits a public EMI handler-priority or prepend API.
 - The crafting grid must be empty before requesting or confirming a refill.
 - Recursive sub-recipes, auto-smelting, and automatic continuous restocking are not supported.
 - Modded machine inventories are not supported.
@@ -181,9 +187,15 @@ Development runs:
 
 # JEI compatibility test
 ./gradlew runClient -Precipe_viewer=jei
+
+# EMI load-safety test (Fill interception is not available in this release)
+./gradlew runClient -Precipe_viewer=emi
+
+# REI compatibility test
+./gradlew runClient -Precipe_viewer=rei
 ```
 
-- JEI is not required for normal gameplay.
+- No recipe viewer is required for normal gameplay.
 - Java 21 is required to build and run.
 
 ## Technical Documentation

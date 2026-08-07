@@ -2,6 +2,34 @@
 
 All notable changes to Workshop Zone will be documented in this file.
 
+## [1.1.0] - Unreleased
+
+### Added
+
+- JEI crafting-table transfer support through the public recipe-transfer API.
+- REI crafting-table transfer support through the public `TransferHandler` API.
+- Single and batch warehouse refill requests from JEI max-transfer and REI stacked-transfer actions.
+- Shared `RecipeViewerCraftBridge` and five-tick duplicate-request guard.
+- Public REI exclusion-zone integration for the Workshop Zone sidebar.
+- Optional development launch modes for JEI, EMI, and REI.
+
+### Changed
+
+- Recipe viewer transfer requests reuse vanilla `ClientPlayerInteractionManager#clickRecipe` and `CraftRequestC2SPacket` instead of adding a custom crafting packet.
+- JEI and REI transfer buttons now reuse Workshop Zone's existing server validation, confirmation overlay, Ingredient solver, and Fabric Transfer API transaction pipeline.
+
+### Compatibility
+
+- JEI, EMI, and REI remain optional dependencies and are never bundled in the release JAR.
+- JEI compatibility was developed against `19.43.0.393`; REI compatibility against `16.0.799`; EMI load-safety against `1.1.24+1.21.1`.
+- EMI Fill interception remains blocked: its public API appends recipe handlers behind EMI's built-in crafting handler and exposes no priority/prepend/replace mechanism. Workshop Zone intentionally does not use EMI internals, reflection, or a Mixin.
+- No save migration, label NBT change, or new network protocol is required.
+
+### Known Limitations
+
+- Recipe viewer transfers support only standard vanilla 3×3 `CraftingRecipe` displays with a real Recipe ID.
+- Direct crafting to the cursor/inventory, virtual recipes, machine recipes, recursive sub-recipes, auto-smelting, and continuous restocking are not supported.
+
 ## [1.0.0] - 2026-08-05
 
 ### Added

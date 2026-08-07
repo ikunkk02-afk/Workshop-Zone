@@ -241,3 +241,77 @@
 - 客户端配置（位置、autoAvoid 等）仅本地保存，不同步服务器。
 - `WorkshopCraftPlanBuilder` 的权限回调在求解前使用原始堆叠数而非求解后的精确提取量。
 - 确认面板不绑定预览中的精确变体——重新求解时可能选择不同变体但仍保持 `plannedIterations` 一致。
+
+## 23. 配方查看器合成桥（1.1.0）
+
+### 模块边界
+
+纯客户端、查看器无关的代码位于 `client/compat/recipeviewer/`：
+
+- `RecipeViewerCraftBridge`：验证客户端、玩家、交互管理器、3×3 `CraftingScreen`、真实 Recipe ID、`CraftingRecipe` 类型、非空输出和空合成栏。
+- `RecipeViewerSource`：使用稳定 ID `workshop_zone:vanilla`、`workshop_zone:jei`、`workshop_zone:emi`、`workshop_zone:rei`；不使用 enum ordinal 进行网络或持久化。
+- `RecipeViewerTransferResult`：给薄适配层返回稳定语义，不作为网络协议。
+- `RecipeViewerTransferGuard`：按 source、recipeId、syncId、batch 和客户端 tick 去重；同请求 5 tick 内只发送一次，Screen/syncId 变化或断线时清空。
+
+Bridge 不 import JEI、EMI 或 REI API。各查看器引用只存在于自己的 `client/compat/<viewer>/` 包，common/main 源集和专用服务器不引用任何查看器类。
+
+### 统一调用链
+
+```text
+JEI IRecipeTransferHandler / REI TransferHandler
+  -> RecipeViewerCraftBridge.request(source, recipeId, batch)
+  -> ClientPlayNetworkHandler RecipeManager 解析真实 RecipeEntry
+  -> ClientPlayerInteractionManager.clickRecipe(syncId, recipeEntry, batch)
+  -> vanilla CraftRequestC2SPacket(syncId, recipeId, craftAll)
+  -> ServerPlayNetworkHandlerMixin
+  -> WorkshopCraftService.preview
+  -> 现有确认 Overlay
+  -> ConfirmWorkshopCraftPayload
+  -> WorkshopCraftTransactionExecutor
+```
+
+没有新增“配方查看器合成”C2S 包。客户端不发送 Ingredient、配方结果或仓库库存，不直接点击/写入槽位，也不直接调用服务端合成服务。
+
+### 模拟检查与真实转移
+
+- JEI `doTransfer == false` 和 REI `isActuallyCrafting() == false` 只调用 Bridge 的无副作用验证，不发送包、不移动物品、不打开确认 Overlay。
+- 真实转移只提交一次原版 `clickRecipe`。
+- 客户端只验证可安全映射的 Recipe ID 与 Screen；材料数量和仓库可用性始终由服务端最终确认。
+- 玩家材料足够时现有服务端 Mixin 放行原版填充；只有仓库提高可制作能力时才产生 Workshop 确认。
+
+### JEI 注册和覆盖顺序
+
+- 使用公开 `IModPlugin#registerRecipeTransferHandlers`，为 `(CraftingScreenHandler.class, RecipeTypes.CRAFTING)` 注册 `WorkshopZoneJeiCraftingTransferHandler`。
+- JEI 19.43.0.393 明确将 `VanillaPlugin` 排在插件列表首位；recipe-transfer 注册表对同一 class/type 键使用后注册覆盖前注册。
+- Workshop Zone 因而通过公开 API 替换 JEI 原版工作台 Handler，避免 JEI 标准槽位移动与 Workshop 原版请求双重执行。
+- JEI 先查精确 Handler，找不到时才查 Universal Handler；因此 Universal Handler 不能可靠覆盖原版工作台 Handler，本实现没有使用它。
+
+### REI 注册、优先级和返回界面
+
+- `WorkshopZoneReiClientPlugin` 通过公开 `TransferHandlerRegistry#register` 注册 Handler，并通过 `ExclusionZones` 注册侧栏区域。
+- Handler 只接受 `minecraft:plugins/crafting`、`CraftingScreen`、`CraftingScreenHandler` 且拥有 `Display#getDisplayLocation` 的显示。
+- `getPriority() = 100`，高于 REI 默认 Handler 的 `0`；不适用时返回 `createNotApplicable()` 让其他机器/特殊配方继续处理。
+- 成功或安全失败时使用 `blocksFurtherHandling(true)`，阻止默认 Handler 重复移动，并返回原工作台 Screen。
+- `isStackedCrafting()` 直接映射为 BATCH，普通操作映射为 SINGLE。
+
+### EMI 1.1.24+1.21.1 上游公开 API 阻塞
+
+EMI 可选运行模式和安全共存已验证，但 1.1.0 不注册无效的 Fill Handler：
+
+1. EMI 固定先注册自身 `CraftingRecipeHandler`。
+2. 公开 `EmiRegistry#addRecipeHandler` 只能把新 Handler 追加到列表末尾。
+3. 运行时只选择第一个 `supportsRecipe` 的 Handler，标准 `EmiCraftingRecipe` 已被内置 Handler 命中。
+4. 公开 API 没有优先级、前插、替换或注销机制。
+
+因此，在禁止 `emi.registry`/`emi.runtime`、反射和 Mixin 的约束下，Workshop Handler 不可能可靠接管标准 Fill 按钮。项目选择明确记录该限制，而不是提交永远不会被调用的伪兼容代码。`-Precipe_viewer=emi` 仍用于验证可选依赖缺失/存在时的安全加载。
+
+### 可选依赖与发布产物
+
+- JEI API `modCompileOnly`，JEI 完整模组只在 `recipe_viewer=jei` 时进入 `modLocalRuntime`。
+- REI API `modCompileOnly`，REI、Architectury、Cloth Config 和 Error Notifier 只在 `recipe_viewer=rei` 开发运行时解析。
+- EMI 只在 `recipe_viewer=emi` 开发运行时解析。
+- 正式 JAR 不 `include`、不打包任何查看器或其运行依赖；`fabric.mod.json` 中它们仍位于 `suggests`。
+
+### Forge / NeoForge 预留边界
+
+未来移植只需替换加载器专属的 Viewer entrypoint/adapter 和客户端配方请求调用。Bridge 的请求语义、去重键、服务端 CraftRequest 权威验证、确认 Overlay 协议及事务服务保持独立。本版本没有开始 Forge 或 NeoForge 移植。
