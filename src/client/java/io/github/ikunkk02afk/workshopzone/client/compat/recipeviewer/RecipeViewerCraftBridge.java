@@ -128,6 +128,10 @@ public final class RecipeViewerCraftBridge {
 		return craftingSlotCount;
 	}
 
+	static boolean isActiveHandler(Object candidate, Object activeHandler) {
+		return candidate != null && candidate == activeHandler;
+	}
+
 	enum RecipeStatus {
 		VALID,
 		UNKNOWN,
@@ -193,7 +197,7 @@ public final class RecipeViewerCraftBridge {
 		public boolean hasCraftingScreenHandler() {
 			CraftingScreenHandler handler = currentHandler();
 			return handler != null
-				&& (viewerHandler != null || handler == client.player.currentScreenHandler)
+				&& isActiveHandler(handler, client.player.currentScreenHandler)
 				&& isThreeByThreeCraftingLayout(
 					handler.getCraftingWidth(), handler.getCraftingHeight(), handler.getCraftingSlotCount()
 				);

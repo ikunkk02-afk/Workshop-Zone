@@ -14,12 +14,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WorkshopCraftClientFilterTest {
 	@Test
 	void activeCraftingHandlerAcceptsPreviewWhileRecipeViewerScreenIsOnTop() {
-		assertTrue(acceptPreview(11, 4, 9, false, true, 50));
-		assertFalse(acceptPreview(12, 4, 9, false, true, 50));
-		assertFalse(acceptPreview(11, 5, 9, false, true, 50));
-		assertFalse(acceptPreview(11, 4, 10, false, true, 50));
-		assertFalse(acceptPreview(11, 4, 9, true, false, 50));
-		assertFalse(acceptPreview(11, 4, 9, false, true, 51));
+		assertTrue(acceptPreview(11, 4, 9, false, true, 9, 50));
+		assertFalse(acceptPreview(12, 4, 9, false, true, 9, 50));
+		assertFalse(acceptPreview(11, 5, 9, false, true, 9, 50));
+		assertFalse(acceptPreview(11, 4, 10, false, true, 9, 50));
+		assertFalse(acceptPreview(11, 4, 9, false, true, 10, 50));
+		assertFalse(acceptPreview(11, 4, 9, true, false, 9, 50));
+		assertFalse(acceptPreview(11, 4, 9, false, true, 9, 51));
 	}
 
 	@Test
@@ -30,6 +31,14 @@ class WorkshopCraftClientFilterTest {
 		assertEquals(0, WorkshopCraftClientFilter.clampScrollIndex(-3, 9, 3));
 		assertEquals(6, WorkshopCraftClientFilter.clampScrollIndex(20, 9, 3));
 		assertEquals(0, WorkshopCraftClientFilter.clampScrollIndex(2, 2, 3));
+	}
+
+	@Test
+	void boundPreviewOnlySurvivesTheSameHandlerIdentity() {
+		Object activeHandler = new Object();
+		assertTrue(WorkshopCraftClientFilter.sameHandler(null, activeHandler));
+		assertTrue(WorkshopCraftClientFilter.sameHandler(activeHandler, activeHandler));
+		assertFalse(WorkshopCraftClientFilter.sameHandler(new Object(), activeHandler));
 	}
 
 	@Test
@@ -58,10 +67,18 @@ class WorkshopCraftClientFilterTest {
 		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, recipeId, WorkshopCraftMode.SINGLE, 1, 51));
 	}
 
-	private static boolean acceptPreview(long sessionId, long revision, int syncId, boolean craftingScreen, boolean activeCraftingHandler, long lastPreviewId) {
+	private static boolean acceptPreview(
+		long sessionId,
+		long revision,
+		int syncId,
+		boolean craftingScreen,
+		boolean activeCraftingHandler,
+		int activeHandlerSyncId,
+		long lastPreviewId
+	) {
 		return WorkshopCraftClientFilter.acceptPreview(
 			51, 11, 4, 9, WorkshopCraftPreviewResultCode.AVAILABLE,
-			sessionId, revision, syncId, craftingScreen, activeCraftingHandler, lastPreviewId
+			sessionId, revision, syncId, craftingScreen, activeCraftingHandler, activeHandlerSyncId, lastPreviewId
 		);
 	}
 }

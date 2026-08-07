@@ -93,6 +93,14 @@ class RecipeViewerCraftBridgeTest {
 	}
 
 	@Test
+	void viewerHandlerMustStillBeTheActivePlayerHandler() {
+		Object activeHandler = new Object();
+		assertTrue(RecipeViewerCraftBridge.isActiveHandler(activeHandler, activeHandler));
+		assertFalse(RecipeViewerCraftBridge.isActiveHandler(new Object(), activeHandler));
+		assertFalse(RecipeViewerCraftBridge.isActiveHandler(null, activeHandler));
+	}
+
+	@Test
 	void nonEmptyCraftingGridIsRejectedWithoutClicking() {
 		client.gridEmpty = false;
 		assertEquals(RecipeViewerTransferResult.GRID_NOT_EMPTY, request(RECIPE, false));

@@ -20,6 +20,7 @@ public final class ClientWorkshopCraftState {
 	private static long currentSessionId = -1;
 	private static long currentRevision = -1;
 	private static int currentSyncId = -1;
+	private static CraftingScreenHandler acceptedHandler;
 
 	private ClientWorkshopCraftState() {
 	}
@@ -73,16 +74,20 @@ public final class ClientWorkshopCraftState {
 
 	static void acceptPreview(MinecraftClient client, WorkshopCraftPreviewPayload payload) {
 		if (payload == null) return;
+		CraftingScreenHandler liveHandler = client.player != null
+			&& client.player.currentScreenHandler instanceof CraftingScreenHandler handler ? handler : null;
 		if (!WorkshopCraftClientFilter.acceptPreview(
 			payload.previewId(), payload.sessionId(), payload.revision(), payload.syncId(), payload.resultId(),
 			currentSessionId, currentRevision, currentSyncId,
 			client.currentScreen instanceof CraftingScreen,
-			client.player != null && client.player.currentScreenHandler instanceof CraftingScreenHandler,
+			liveHandler != null,
+			liveHandler == null ? -1 : liveHandler.syncId,
 			lastAcceptedPreviewId
 		)) {
 			return;
 		}
 		currentPreview = payload;
+		acceptedHandler = liveHandler;
 		lastExecutionResult = null;
 		pending = false;
 		scrollIndex = 0;
@@ -105,8 +110,10 @@ public final class ClientWorkshopCraftState {
 		currentPreview = null;
 	}
 
-	public static void onScreenChanged(Screen current) {
-		if (current == null || !(current instanceof CraftingScreen)) {
+	static void onScreenChanged(Screen current) {
+		if (current == null || !(current instanceof CraftingScreen craftingScreen)) {
+			reset();
+		} else if (!WorkshopCraftClientFilter.sameHandler(acceptedHandler, craftingScreen.getScreenHandler())) {
 			reset();
 		}
 	}
@@ -141,6 +148,7 @@ public final class ClientWorkshopCraftState {
 		pending = false;
 		scrollIndex = 0;
 		expiresAtMs = 0;
+		acceptedHandler = null;
 	}
 
 }

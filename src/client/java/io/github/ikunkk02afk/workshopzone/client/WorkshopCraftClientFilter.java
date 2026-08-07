@@ -38,16 +38,41 @@ public final class WorkshopCraftClientFilter {
 		boolean activeCraftingHandler,
 		long lastAcceptedPreviewId
 	) {
+		return acceptPreview(
+			previewId, payloadSessionId, payloadRevision, payloadSyncId, resultId,
+			sessionId, revision, syncId, craftingScreen, activeCraftingHandler, syncId, lastAcceptedPreviewId
+		);
+	}
+
+	public static boolean acceptPreview(
+		long previewId,
+		long payloadSessionId,
+		long payloadRevision,
+		int payloadSyncId,
+		WorkshopCraftPreviewResultCode resultId,
+		long sessionId,
+		long revision,
+		int syncId,
+		boolean craftingScreen,
+		boolean activeCraftingHandler,
+		int activeHandlerSyncId,
+		long lastAcceptedPreviewId
+	) {
 		return activeCraftingHandler
 			&& resultId == WorkshopCraftPreviewResultCode.AVAILABLE
 			&& payloadSessionId == sessionId
 			&& payloadRevision == revision
 			&& payloadSyncId == syncId
+			&& payloadSyncId == activeHandlerSyncId
 			&& previewId > lastAcceptedPreviewId;
 	}
 
 	public static boolean canConfirm(boolean pending, long currentTick, long expiresAtTick) {
 		return !pending && currentTick < expiresAtTick;
+	}
+
+	static boolean sameHandler(Object expectedHandler, Object activeHandler) {
+		return expectedHandler == null || expectedHandler == activeHandler;
 	}
 
 	public static boolean acceptExecution(
