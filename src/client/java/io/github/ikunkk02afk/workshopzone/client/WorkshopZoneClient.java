@@ -1,6 +1,7 @@
 package io.github.ikunkk02afk.workshopzone.client;
 
 import io.github.ikunkk02afk.workshopzone.WorkshopZone;
+import io.github.ikunkk02afk.workshopzone.client.compat.recipeviewer.RecipeViewerCraftBridge;
 import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
@@ -83,6 +84,7 @@ public class WorkshopZoneClient implements ClientModInitializer {
 		});
 		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
 			ClientWorkshopState.resetConnection();
+			RecipeViewerCraftBridge.reset();
 		});
 		WorkshopScreenIntegration.register();
 		WorkshopZone.LOGGER.debug("Workshop Zone client initialization complete");
