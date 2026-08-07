@@ -14,11 +14,27 @@ repositories {
 			includeGroup "mezz.jei"
 		}
 	}
+	maven {
+		name = "TerraformersMC"
+		url = "https://maven.terraformersmc.com/releases/"
+		content {
+			includeGroup "dev.emi"
+		}
+	}
+	maven {
+		name = "Shedaniel"
+		url = "https://maven.shedaniel.me/"
+		content {
+			includeGroup "me.shedaniel"
+			includeGroup "me.shedaniel.cloth"
+			includeGroup "dev.architectury"
+		}
+	}
 }
 
 def recipeViewer = providers.gradleProperty("recipe_viewer").orElse("none").get().toLowerCase()
-if (!(recipeViewer in ["none", "jei"])) {
-	throw new GradleException("Unsupported recipe_viewer '${recipeViewer}'. Expected 'none' or 'jei'.")
+if (!(recipeViewer in ["none", "jei", "emi", "rei"])) {
+	throw new GradleException("Unsupported recipe_viewer '${recipeViewer}'. Expected 'none', 'jei', 'emi', or 'rei'.")
 }
 
 loom {
@@ -55,10 +71,15 @@ dependencies {
 	// Fabric API. This is technically optional, but you probably want it anyway.
 	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
 
-	// JEI's public API is compile-only. The full mod is added only to an explicitly selected dev run.
+	// Recipe viewer APIs are compile-only. Full mods are added only to explicitly selected dev runs.
 	modCompileOnly "mezz.jei:jei-1.21.1-fabric-api:${project.jei_version}"
+	modCompileOnly "me.shedaniel:RoughlyEnoughItems-api-fabric:${project.rei_version}"
 	if (recipeViewer == "jei") {
 		modLocalRuntime "mezz.jei:jei-1.21.1-fabric:${project.jei_version}"
+	} else if (recipeViewer == "emi") {
+		modLocalRuntime "dev.emi:emi-fabric:${project.emi_version}"
+	} else if (recipeViewer == "rei") {
+		modLocalRuntime "me.shedaniel:RoughlyEnoughItems-fabric:${project.rei_version}"
 	}
 
 	testImplementation "org.junit.jupiter:junit-jupiter:5.11.0"

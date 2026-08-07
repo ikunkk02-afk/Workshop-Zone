@@ -28,6 +28,9 @@
 		"jei_mod_plugin": [
 			"io.github.ikunkk02afk.workshopzone.client.compat.jei.WorkshopZoneJeiPlugin"
 		],
+		"rei_client": [
+			"io.github.ikunkk02afk.workshopzone.client.compat.rei.WorkshopZoneReiClientPlugin"
+		],
 		"fabric-datagen": [
 			"io.github.ikunkk02afk.workshopzone.client.WorkshopZoneDataGenerator"
 		]
