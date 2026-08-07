@@ -83,9 +83,9 @@ public final class WorkshopScreenIntegration {
 				);
 				controller.removed();
 				WorkshopCraftInputOverlayRegistry.remove(screen);
-				ClientWorkshopCraftState.onScreenChanged(null);
 				WorkshopSidebarPlacementRegistry.remove(handledScreen);
-				ClientWorkshopState.clearForScreen(handledScreen.getScreenHandler().syncId);
+				// Recipe viewers temporarily replace CraftingScreen while its server menu stays open.
+				// The server's ClearWorkshopSessionPayload is the authority for clearing this session.
 			});
 		});
 	}

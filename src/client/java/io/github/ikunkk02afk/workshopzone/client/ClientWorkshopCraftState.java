@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.MinecraftClient;
 import net.minecraft.client.gui.screen.Screen;
 import net.minecraft.client.gui.screen.ingame.CraftingScreen;
+import net.minecraft.screen.CraftingScreenHandler;
 
 public final class ClientWorkshopCraftState {
 	private static WorkshopCraftPreviewPayload currentPreview;
@@ -76,6 +77,7 @@ public final class ClientWorkshopCraftState {
 			payload.previewId(), payload.sessionId(), payload.revision(), payload.syncId(), payload.resultId(),
 			currentSessionId, currentRevision, currentSyncId,
 			client.currentScreen instanceof CraftingScreen,
+			client.player != null && client.player.currentScreenHandler instanceof CraftingScreenHandler,
 			lastAcceptedPreviewId
 		)) {
 			return;

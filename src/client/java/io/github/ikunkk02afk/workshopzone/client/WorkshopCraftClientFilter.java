@@ -16,11 +16,12 @@ public final class WorkshopCraftClientFilter {
 		long revision,
 		int syncId,
 		boolean craftingScreen,
+		boolean activeCraftingHandler,
 		long lastAcceptedPreviewId
 	) {
 		return acceptPreview(
 			payload.previewId(), payload.sessionId(), payload.revision(), payload.syncId(), payload.resultId(),
-			sessionId, revision, syncId, craftingScreen, lastAcceptedPreviewId
+			sessionId, revision, syncId, craftingScreen, activeCraftingHandler, lastAcceptedPreviewId
 		);
 	}
 
@@ -34,9 +35,10 @@ public final class WorkshopCraftClientFilter {
 		long revision,
 		int syncId,
 		boolean craftingScreen,
+		boolean activeCraftingHandler,
 		long lastAcceptedPreviewId
 	) {
-		return craftingScreen
+		return activeCraftingHandler
 			&& resultId == WorkshopCraftPreviewResultCode.AVAILABLE
 			&& payloadSessionId == sessionId
 			&& payloadRevision == revision

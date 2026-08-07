@@ -86,13 +86,17 @@ class WorkshopZoneJeiCraftingTransferHandlerTest {
 		private final List<Boolean> requestedBatches = new ArrayList<>();
 
 		@Override
-		public RecipeViewerTransferResult validate(Identifier recipeId) {
+		public RecipeViewerTransferResult validate(Identifier recipeId, net.minecraft.screen.CraftingScreenHandler handler) {
 			validatedRecipeIds.add(recipeId);
 			return validationResult;
 		}
 
 		@Override
-		public RecipeViewerTransferResult request(Identifier recipeId, boolean batch) {
+		public RecipeViewerTransferResult request(
+			Identifier recipeId,
+			boolean batch,
+			net.minecraft.screen.CraftingScreenHandler handler
+		) {
 			requestedRecipeIds.add(recipeId);
 			requestedBatches.add(batch);
 			return requestResult;

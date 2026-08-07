@@ -89,7 +89,7 @@ public record WorkshopCraftPreviewPayload(
 		buf.writeIdentifier(payload.recipeId);
 		buf.writeIdentifier(payload.resultId.id());
 		buf.writeIdentifier(payload.craftMode.id());
-		ItemStack.PACKET_CODEC.encode(buf, payload.output);
+		ItemStack.OPTIONAL_PACKET_CODEC.encode(buf, payload.output);
 		buf.writeVarInt(payload.materials.size());
 		for (WorkshopCraftMaterialSummary material : payload.materials) {
 			ItemStack.PACKET_CODEC.encode(buf, material.stack());
@@ -119,7 +119,7 @@ public record WorkshopCraftPreviewPayload(
 		Identifier modeIdentifier = buf.readIdentifier();
 		WorkshopCraftMode craftMode = WorkshopCraftMode.fromId(modeIdentifier)
 			.orElseThrow(() -> new DecoderException("Unknown workshop crafting mode " + modeIdentifier));
-		ItemStack output = ItemStack.PACKET_CODEC.decode(buf);
+		ItemStack output = ItemStack.OPTIONAL_PACKET_CODEC.decode(buf);
 		int materialCount = buf.readVarInt();
 		if (materialCount < 0 || materialCount > MAX_MATERIALS) {
 			throw new DecoderException("Workshop crafting material count exceeds limit: " + materialCount);

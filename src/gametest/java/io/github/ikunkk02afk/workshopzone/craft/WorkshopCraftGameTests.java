@@ -107,6 +107,16 @@ public final class WorkshopCraftGameTests implements FabricGameTest {
 		context.assertEquals(WorkshopCraftPreviewResultCode.INSUFFICIENT, preview.resultId(), "Combined shortage should remain unavailable");
 		context.assertEquals(3, fixture.container.inventory().count(Items.OAK_PLANKS), "Failed preview must not extract anything");
 		context.assertEquals(0, gridCount(fixture.handler), "Failed preview must not fill anything");
+		RegistryByteBuf buffer = new RegistryByteBuf(Unpooled.buffer(), context.getWorld().getRegistryManager());
+		WorkshopCraftPreviewPayload emptyOutputFailure = new WorkshopCraftPreviewPayload(
+			0, preview.sessionId(), preview.revision(), preview.syncId(), CRAFTING_TABLE_RECIPE,
+			WorkshopCraftPreviewResultCode.UNSUPPORTED_RECIPE, WorkshopCraftMode.SINGLE,
+			ItemStack.EMPTY, List.of(), 0, 0, 0, 0, 0, 0, 0, 0
+		);
+		WorkshopCraftPreviewPayload.CODEC.encode(buffer, emptyOutputFailure);
+		WorkshopCraftPreviewPayload decoded = WorkshopCraftPreviewPayload.CODEC.decode(buffer);
+		context.assertEquals(WorkshopCraftPreviewResultCode.UNSUPPORTED_RECIPE, decoded.resultId(), "Failure result should survive network encoding");
+		context.assertTrue(decoded.output().isEmpty(), "Failure preview should preserve an empty optional output");
 		finish(fixture, context);
 	}
 

@@ -29,13 +29,17 @@ public final class WorkshopZoneJeiCraftingTransferHandler
 	public WorkshopZoneJeiCraftingTransferHandler(IRecipeTransferHandlerHelper transferHelper) {
 		this(transferHelper, new BridgeAccess() {
 			@Override
-			public RecipeViewerTransferResult validate(Identifier recipeId) {
-				return RecipeViewerCraftBridge.validate(recipeId);
+			public RecipeViewerTransferResult validate(Identifier recipeId, CraftingScreenHandler handler) {
+				return RecipeViewerCraftBridge.validate(recipeId, handler);
 			}
 
 			@Override
-			public RecipeViewerTransferResult request(Identifier recipeId, boolean batch) {
-				return RecipeViewerCraftBridge.request(RecipeViewerSource.JEI, recipeId, batch);
+			public RecipeViewerTransferResult request(
+				Identifier recipeId,
+				boolean batch,
+				CraftingScreenHandler handler
+			) {
+				return RecipeViewerCraftBridge.request(RecipeViewerSource.JEI, recipeId, batch, handler);
 			}
 		});
 	}
@@ -70,18 +74,28 @@ public final class WorkshopZoneJeiCraftingTransferHandler
 		boolean maxTransfer,
 		boolean doTransfer
 	) {
-		return transferRecipeId(recipe == null ? null : recipe.id(), maxTransfer, doTransfer);
+		return transferRecipeId(container, recipe == null ? null : recipe.id(), maxTransfer, doTransfer);
 	}
 
 	@Nullable
 	IRecipeTransferError transferRecipeId(Identifier recipeId, boolean maxTransfer, boolean doTransfer) {
+		return transferRecipeId(null, recipeId, maxTransfer, doTransfer);
+	}
+
+	@Nullable
+	IRecipeTransferError transferRecipeId(
+		CraftingScreenHandler handler,
+		Identifier recipeId,
+		boolean maxTransfer,
+		boolean doTransfer
+	) {
 		if (recipeId == null) {
 			return userError(RecipeViewerTransferResult.INVALID_RECIPE);
 		}
 
 		RecipeViewerTransferResult result = doTransfer
-			? bridge.request(recipeId, maxTransfer)
-			: bridge.validate(recipeId);
+			? bridge.request(recipeId, maxTransfer, handler)
+			: bridge.validate(recipeId, handler);
 		if (result == RecipeViewerTransferResult.READY
 			|| result == RecipeViewerTransferResult.REQUEST_SENT
 			|| result == RecipeViewerTransferResult.DUPLICATE_REQUEST) {
@@ -107,8 +121,8 @@ public final class WorkshopZoneJeiCraftingTransferHandler
 	}
 
 	interface BridgeAccess {
-		RecipeViewerTransferResult validate(Identifier recipeId);
+		RecipeViewerTransferResult validate(Identifier recipeId, CraftingScreenHandler handler);
 
-		RecipeViewerTransferResult request(Identifier recipeId, boolean batch);
+		RecipeViewerTransferResult request(Identifier recipeId, boolean batch, CraftingScreenHandler handler);
 	}
 }

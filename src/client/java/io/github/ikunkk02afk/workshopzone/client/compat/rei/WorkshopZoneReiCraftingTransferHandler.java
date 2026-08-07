@@ -19,13 +19,17 @@ public final class WorkshopZoneReiCraftingTransferHandler implements TransferHan
 	public WorkshopZoneReiCraftingTransferHandler() {
 		this(new BridgeAccess() {
 			@Override
-			public RecipeViewerTransferResult validate(Identifier recipeId) {
-				return RecipeViewerCraftBridge.validate(recipeId);
+			public RecipeViewerTransferResult validate(Identifier recipeId, CraftingScreenHandler handler) {
+				return RecipeViewerCraftBridge.validate(recipeId, handler);
 			}
 
 			@Override
-			public RecipeViewerTransferResult request(Identifier recipeId, boolean batch) {
-				return RecipeViewerCraftBridge.request(RecipeViewerSource.REI, recipeId, batch);
+			public RecipeViewerTransferResult request(
+				Identifier recipeId,
+				boolean batch,
+				CraftingScreenHandler handler
+			) {
+				return RecipeViewerCraftBridge.request(RecipeViewerSource.REI, recipeId, batch, handler);
 			}
 		});
 	}
@@ -48,7 +52,7 @@ public final class WorkshopZoneReiCraftingTransferHandler implements TransferHan
 		if (!isStructurallyApplicable(context)) {
 			return ApplicabilityResult.createNotApplicable();
 		}
-		RecipeViewerTransferResult validation = bridge.validate(context.recipeId());
+		RecipeViewerTransferResult validation = bridge.validate(context.recipeId(), context.craftingHandler());
 		return switch (validation) {
 			case READY -> ApplicabilityResult.createApplicable();
 			case GRID_NOT_EMPTY, NO_CLIENT, NO_PLAYER, NO_INTERACTION_MANAGER, INVALID_SCREEN, INTERNAL_ERROR ->
@@ -67,8 +71,8 @@ public final class WorkshopZoneReiCraftingTransferHandler implements TransferHan
 			return Result.createNotApplicable();
 		}
 		RecipeViewerTransferResult result = context.isActuallyCrafting()
-			? bridge.request(context.recipeId(), context.isStackedCrafting())
-			: bridge.validate(context.recipeId());
+			? bridge.request(context.recipeId(), context.isStackedCrafting(), context.craftingHandler())
+			: bridge.validate(context.recipeId(), context.craftingHandler());
 		return switch (result) {
 			case READY, REQUEST_SENT, DUPLICATE_REQUEST -> Result.createSuccessful().blocksFurtherHandling(true);
 			case INVALID_RECIPE, UNSUPPORTED_RECIPE, NOT_APPLICABLE -> Result.createNotApplicable();
@@ -98,15 +102,17 @@ public final class WorkshopZoneReiCraftingTransferHandler implements TransferHan
 	}
 
 	interface BridgeAccess {
-		RecipeViewerTransferResult validate(Identifier recipeId);
+		RecipeViewerTransferResult validate(Identifier recipeId, CraftingScreenHandler handler);
 
-		RecipeViewerTransferResult request(Identifier recipeId, boolean batch);
+		RecipeViewerTransferResult request(Identifier recipeId, boolean batch, CraftingScreenHandler handler);
 	}
 
 	interface ContextAccess {
 		boolean isCraftingScreen();
 
 		boolean hasCraftingScreenHandler();
+
+		CraftingScreenHandler craftingHandler();
 
 		boolean isCraftingCategory();
 
@@ -132,6 +138,11 @@ public final class WorkshopZoneReiCraftingTransferHandler implements TransferHan
 		@Override
 		public boolean hasCraftingScreenHandler() {
 			return context != null && context.getMenu() instanceof CraftingScreenHandler;
+		}
+
+		@Override
+		public CraftingScreenHandler craftingHandler() {
+			return context != null && context.getMenu() instanceof CraftingScreenHandler handler ? handler : null;
 		}
 
 		@Override

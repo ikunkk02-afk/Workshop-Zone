@@ -13,13 +13,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class WorkshopCraftClientFilterTest {
 	@Test
-	void onlyCurrentCraftingScreenSessionAndNewerPreviewAreAccepted() {
-		assertTrue(acceptPreview(11, 4, 9, true, 50));
-		assertFalse(acceptPreview(12, 4, 9, true, 50));
-		assertFalse(acceptPreview(11, 5, 9, true, 50));
-		assertFalse(acceptPreview(11, 4, 10, true, 50));
-		assertFalse(acceptPreview(11, 4, 9, false, 50));
-		assertFalse(acceptPreview(11, 4, 9, true, 51));
+	void activeCraftingHandlerAcceptsPreviewWhileRecipeViewerScreenIsOnTop() {
+		assertTrue(acceptPreview(11, 4, 9, false, true, 50));
+		assertFalse(acceptPreview(12, 4, 9, false, true, 50));
+		assertFalse(acceptPreview(11, 5, 9, false, true, 50));
+		assertFalse(acceptPreview(11, 4, 10, false, true, 50));
+		assertFalse(acceptPreview(11, 4, 9, true, false, 50));
+		assertFalse(acceptPreview(11, 4, 9, false, true, 51));
 	}
 
 	@Test
@@ -58,10 +58,10 @@ class WorkshopCraftClientFilterTest {
 		assertFalse(WorkshopCraftClientFilter.acceptExecution(result, 51, 11, 9, recipeId, WorkshopCraftMode.SINGLE, 1, 51));
 	}
 
-	private static boolean acceptPreview(long sessionId, long revision, int syncId, boolean crafting, long lastPreviewId) {
+	private static boolean acceptPreview(long sessionId, long revision, int syncId, boolean craftingScreen, boolean activeCraftingHandler, long lastPreviewId) {
 		return WorkshopCraftClientFilter.acceptPreview(
 			51, 11, 4, 9, WorkshopCraftPreviewResultCode.AVAILABLE,
-			sessionId, revision, syncId, crafting, lastPreviewId
+			sessionId, revision, syncId, craftingScreen, activeCraftingHandler, lastPreviewId
 		);
 	}
 }

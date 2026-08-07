@@ -41,8 +41,16 @@ class RecipeViewerCraftBridgeTest {
 	}
 
 	@Test
-	void nonCraftingScreenIsRejected() {
+	void recipeViewerOverlayWithActiveCraftingHandlerCanSubmitRequest() {
 		client.craftingScreen = false;
+		assertEquals(RecipeViewerTransferResult.REQUEST_SENT, request(RECIPE, false));
+		assertEquals(List.of(false), client.clickedBatchValues);
+	}
+
+	@Test
+	void missingCraftingScreenAndHandlerIsRejected() {
+		client.craftingScreen = false;
+		client.craftingHandler = false;
 		assertEquals(RecipeViewerTransferResult.INVALID_SCREEN, request(RECIPE, false));
 	}
 
@@ -74,6 +82,14 @@ class RecipeViewerCraftBridgeTest {
 	void emptyOrAirRecipeOutputIsRejected() {
 		client.recipeStatus = RecipeViewerCraftBridge.RecipeStatus.INVALID_OUTPUT;
 		assertEquals(RecipeViewerTransferResult.INVALID_RECIPE, request(RECIPE, false));
+	}
+
+	@Test
+	void vanillaCraftingLayoutCountsOutputPlusNineInputSlots() {
+		assertTrue(RecipeViewerCraftBridge.isThreeByThreeCraftingLayout(3, 3, 10));
+		assertFalse(RecipeViewerCraftBridge.isThreeByThreeCraftingLayout(3, 3, 9));
+		assertEquals(1, RecipeViewerCraftBridge.firstCraftingInputSlot());
+		assertEquals(10, RecipeViewerCraftBridge.craftingInputEndExclusive(10));
 	}
 
 	@Test

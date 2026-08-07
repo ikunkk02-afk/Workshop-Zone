@@ -22,8 +22,20 @@ public final class RecipeViewerCraftBridge {
 		Identifier recipeId,
 		boolean batch
 	) {
+		return request(source, recipeId, batch, null);
+	}
+
+	public static RecipeViewerTransferResult request(
+		RecipeViewerSource source,
+		Identifier recipeId,
+		boolean batch,
+		CraftingScreenHandler viewerHandler
+	) {
 		try {
-			return request(source, recipeId, batch, new MinecraftClientAccess(MinecraftClient.getInstance()), GUARD);
+			return request(
+				source, recipeId, batch,
+				new MinecraftClientAccess(MinecraftClient.getInstance(), viewerHandler), GUARD
+			);
 		} catch (RuntimeException exception) {
 			WorkshopZone.LOGGER.error("Recipe viewer crafting bridge failed safely for {}", recipeId, exception);
 			return RecipeViewerTransferResult.INTERNAL_ERROR;
@@ -31,8 +43,15 @@ public final class RecipeViewerCraftBridge {
 	}
 
 	public static RecipeViewerTransferResult validate(Identifier recipeId) {
+		return validate(recipeId, (CraftingScreenHandler)null);
+	}
+
+	public static RecipeViewerTransferResult validate(
+		Identifier recipeId,
+		CraftingScreenHandler viewerHandler
+	) {
 		try {
-			return validate(recipeId, new MinecraftClientAccess(MinecraftClient.getInstance()));
+			return validate(recipeId, new MinecraftClientAccess(MinecraftClient.getInstance(), viewerHandler));
 		} catch (RuntimeException exception) {
 			WorkshopZone.LOGGER.error("Recipe viewer crafting validation failed safely for {}", recipeId, exception);
 			return RecipeViewerTransferResult.INTERNAL_ERROR;
@@ -73,7 +92,7 @@ public final class RecipeViewerCraftBridge {
 		if (!client.hasInteractionManager()) {
 			return RecipeViewerTransferResult.NO_INTERACTION_MANAGER;
 		}
-		if (!client.isCraftingScreen() || !client.hasCraftingScreenHandler()) {
+		if (!client.hasCraftingScreenHandler()) {
 			return RecipeViewerTransferResult.INVALID_SCREEN;
 		}
 		if (recipeId == null || AIR_ID.equals(recipeId)) {
@@ -95,6 +114,18 @@ public final class RecipeViewerCraftBridge {
 
 	public static void reset() {
 		GUARD.clear();
+	}
+
+	static boolean isThreeByThreeCraftingLayout(int width, int height, int craftingSlotCount) {
+		return width == 3 && height == 3 && craftingSlotCount == 10;
+	}
+
+	static int firstCraftingInputSlot() {
+		return 1;
+	}
+
+	static int craftingInputEndExclusive(int craftingSlotCount) {
+		return craftingSlotCount;
 	}
 
 	enum RecipeStatus {
@@ -130,10 +161,12 @@ public final class RecipeViewerCraftBridge {
 
 	private static final class MinecraftClientAccess implements ClientAccess {
 		private final MinecraftClient client;
+		private final CraftingScreenHandler viewerHandler;
 		private RecipeEntry<?> resolvedRecipe;
 
-		private MinecraftClientAccess(MinecraftClient client) {
+		private MinecraftClientAccess(MinecraftClient client, CraftingScreenHandler viewerHandler) {
 			this.client = client;
+			this.viewerHandler = viewerHandler;
 		}
 
 		@Override
@@ -160,10 +193,10 @@ public final class RecipeViewerCraftBridge {
 		public boolean hasCraftingScreenHandler() {
 			CraftingScreenHandler handler = currentHandler();
 			return handler != null
-				&& handler == client.player.currentScreenHandler
-				&& handler.getCraftingWidth() == 3
-				&& handler.getCraftingHeight() == 3
-				&& handler.getCraftingSlotCount() == 9;
+				&& (viewerHandler != null || handler == client.player.currentScreenHandler)
+				&& isThreeByThreeCraftingLayout(
+					handler.getCraftingWidth(), handler.getCraftingHeight(), handler.getCraftingSlotCount()
+				);
 		}
 
 		@Override
@@ -192,7 +225,11 @@ public final class RecipeViewerCraftBridge {
 			if (handler == null) {
 				return false;
 			}
-			for (int slot = 1; slot <= handler.getCraftingSlotCount(); slot++) {
+			for (
+				int slot = firstCraftingInputSlot();
+				slot < craftingInputEndExclusive(handler.getCraftingSlotCount());
+				slot++
+			) {
 				if (!handler.getSlot(slot).getStack().isEmpty()) {
 					return false;
 				}
@@ -213,7 +250,7 @@ public final class RecipeViewerCraftBridge {
 
 		@Override
 		public Object screenIdentity() {
-			return client.currentScreen;
+			return currentHandler();
 		}
 
 		@Override
@@ -226,10 +263,14 @@ public final class RecipeViewerCraftBridge {
 		}
 
 		private CraftingScreenHandler currentHandler() {
-			if (client == null || !(client.currentScreen instanceof CraftingScreen screen)) {
+			if (viewerHandler != null) {
+				return viewerHandler;
+			}
+			if (client == null || client.player == null
+				|| !(client.player.currentScreenHandler instanceof CraftingScreenHandler handler)) {
 				return null;
 			}
-			return screen.getScreenHandler();
+			return handler;
 		}
 	}
 }
